@@ -53,7 +53,7 @@ jobs:
         (github.event.comment.body == 'recheck' ||
          github.event.comment.body == 'I have read the CLA document and I hereby sign the CLA'))
     steps:
-      - uses: wolfware-labs/cla-action@ebeb701a6dddbd47e86651cf6f85e951538cd2b8 # master, 2026-10-13
+      - uses: wolfware-labs/cla-action@c14e53c86af3e9583c1e0020e6d2f365e5016eb4 # main, 2026-10-14
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
