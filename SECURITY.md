@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Fixes land on `master`. Workflows should pin the action to a commit SHA and move to the commit that contains a fix.
+Fixes land on `main`. Workflows should pin the action to a commit SHA and move to the commit that contains a fix.
 
 ## Reporting a vulnerability
 
