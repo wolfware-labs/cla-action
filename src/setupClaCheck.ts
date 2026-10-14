@@ -6,6 +6,7 @@ import { Committer, CommitterMap, SignatureFile } from './interfaces'
 import { createFile, getFileContent, updateFile } from './persistence/persistence'
 import prCommentSetup from './pullrequest/pullRequestComment'
 import { reRunLastWorkFlowIfRequired } from './pullRerunRunner'
+import { documentKind } from './shared/getInputs'
 
 /** Checks that every author has signed, records new signatures and sets the check result. */
 export async function setupClaCheck(): Promise<void> {
@@ -24,10 +25,10 @@ export async function setupClaCheck(): Promise<void> {
   }
 
   if (fromComments?.allSignedFlag || committerMap.notSigned.length === 0) {
-    core.info('All contributors have signed the CLA 📝 ✅ ')
+    core.info(`All contributors have signed the ${documentKind()} 📝 ✅ `)
     await reRunLastWorkFlowIfRequired()
   } else {
-    core.setFailed(`Committers of Pull Request number ${context.issue.number} have to sign the CLA 📝`)
+    core.setFailed(`Committers of Pull Request number ${context.issue.number} have to sign the ${documentKind()} 📝`)
   }
 }
 

@@ -26,7 +26,7 @@ export async function createFile(contentBinary: string) {
     owner,
     repo,
     path,
-    message: input.getCreateFileCommitMessage() || 'Creating file for storing CLA Signatures',
+    message: input.getCreateFileCommitMessage() || `Creating file for storing ${input.documentKind()} Signatures`,
     content: contentBinary,
     branch
   })
@@ -46,7 +46,7 @@ export async function updateFile(sha: string, claFileContent: SignatureFile, fro
         .replace('$pullRequestNo', pullRequestNo.toString())
         .replace('$owner', prOwner)
         .replace('$repo', prRepo)
-    : `@${context.actor} has signed the CLA in ${prOwner}/${prRepo}#${pullRequestNo}`
+    : `@${context.actor} has signed the ${input.documentKind()} in ${prOwner}/${prRepo}#${pullRequestNo}`
 
   await client.rest.repos.createOrUpdateFileContents({
     owner,

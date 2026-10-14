@@ -16,6 +16,14 @@ describe('lockPullRequest', () => {
     expect(core.info).toHaveBeenCalledWith('successfully locked the pull request 7')
   })
 
+  it('names the document kind in its log', async () => {
+    await lockPullRequest()
+    expect(core.info).toHaveBeenCalledWith('Locking the Pull Request to safe guard the Pull Request CLA Signatures')
+    reset({ 'use-dco-flag': 'true' })
+    await lockPullRequest()
+    expect(core.info).toHaveBeenCalledWith('Locking the Pull Request to safe guard the Pull Request DCO Signatures')
+  })
+
   it('warns about a failed lock without failing the run', async () => {
     octokit.rest.issues.lock.mockRejectedValue(new Error('403'))
     await expect(lockPullRequest()).resolves.toBeUndefined()

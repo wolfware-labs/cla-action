@@ -57,6 +57,14 @@ describe('persistence', () => {
     expect(decode(call.content)).toContain('\n  "signedContributors"')
   })
 
+  it('names the DCO in the default commit messages when use-dco-flag is true', async () => {
+    reset({ 'use-dco-flag': 'true' })
+    await createFile('eA==')
+    await updateFile('abc', { signedContributors: [] } as any, { newSigned: [{ name: 'alice', id: 1 }] as any, onlyCommitters: [], allSignedFlag: true })
+    const messages = octokit.rest.repos.createOrUpdateFileContents.mock.calls.map(c => c[0].message)
+    expect(messages).toEqual(['Creating file for storing DCO Signatures', '@alice has signed the DCO in acme/widgets#7'])
+  })
+
   it('fills every placeholder of a custom signed commit message', async () => {
     reset({ 'signed-commit-message': '$contributorName signed in $owner/$repo#$pullRequestNo' })
     await updateFile('abc', { signedContributors: [] }, { newSigned: [], onlyCommitters: [], allSignedFlag: false })

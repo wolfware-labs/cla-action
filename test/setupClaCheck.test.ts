@@ -56,6 +56,20 @@ describe('setupClaCheck', () => {
     expect(octokit.rest.repos.createOrUpdateFileContents).not.toHaveBeenCalled()
   })
 
+  it('names the DCO in the result when use-dco-flag is true', async () => {
+    reset({ 'use-dco-flag': 'true' })
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([]))
+    await setupClaCheck()
+    expect(core.setFailed).toHaveBeenCalledWith('Committers of Pull Request number 7 have to sign the DCO 📝')
+
+    reset({ 'use-dco-flag': 'true' })
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([{ name: 'alice', id: 1 }]))
+    await setupClaCheck()
+    expect(core.info).toHaveBeenCalledWith('All contributors have signed the DCO 📝 ✅ ')
+  })
+
   it('records a signature from a comment and passes', async () => {
     authors(['bob', 2])
     octokit.rest.repos.getContent.mockResolvedValue(signatureFile([], 'sha-1'))

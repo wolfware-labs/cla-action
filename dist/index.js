@@ -37328,23 +37328,6 @@ function isPersonalAccessTokenPresent() {
     return personalAccessToken !== undefined && personalAccessToken !== '';
 }
 
-;// CONCATENATED MODULE: ./src/pullrequest/pullRequestLock.ts
-
-
-
-/** Locks the pull request conversation so that signature comments cannot be changed. */
-async function lockPullRequest() {
-    const pullRequestNo = github_context.issue.number;
-    info('Locking the Pull Request to safe guard the Pull Request CLA Signatures');
-    try {
-        await octokit.rest.issues.lock({ owner: github_context.repo.owner, repo: github_context.repo.repo, issue_number: pullRequestNo });
-        info(`successfully locked the pull request ${pullRequestNo}`);
-    }
-    catch (error) {
-        warning(`Could not lock pull request ${pullRequestNo}: ${error.message}. The workflow needs the issues: write permission.`);
-    }
-}
-
 ;// CONCATENATED MODULE: ./src/shared/getInputs.ts
 
 const getInputs_text = (name) => getInput(name, { required: false });
@@ -37369,6 +37352,24 @@ const documentKind = () => (useDco() ? 'DCO' : 'CLA');
 /** The sentence a contributor comments to sign. */
 const signSentence = () => getCustomPrSignComment() ||
     `I have read the ${documentKind()} Document and I hereby sign the ${documentKind()}`;
+
+;// CONCATENATED MODULE: ./src/pullrequest/pullRequestLock.ts
+
+
+
+
+/** Locks the pull request conversation so that signature comments cannot be changed. */
+async function lockPullRequest() {
+    const pullRequestNo = github_context.issue.number;
+    info(`Locking the Pull Request to safe guard the Pull Request ${documentKind()} Signatures`);
+    try {
+        await octokit.rest.issues.lock({ owner: github_context.repo.owner, repo: github_context.repo.repo, issue_number: pullRequestNo });
+        info(`successfully locked the pull request ${pullRequestNo}`);
+    }
+    catch (error) {
+        warning(`Could not lock pull request ${pullRequestNo}: ${error.message}. The workflow needs the issues: write permission.`);
+    }
+}
 
 ;// CONCATENATED MODULE: ./src/checkAllowList.ts
 
@@ -37474,7 +37475,7 @@ async function createFile(contentBinary) {
         owner,
         repo,
         path,
-        message: getCreateFileCommitMessage() || 'Creating file for storing CLA Signatures',
+        message: getCreateFileCommitMessage() || `Creating file for storing ${documentKind()} Signatures`,
         content: contentBinary,
         branch
     });
@@ -37491,7 +37492,7 @@ async function updateFile(sha, claFileContent, fromComments) {
             .replace('$pullRequestNo', pullRequestNo.toString())
             .replace('$owner', prOwner)
             .replace('$repo', prRepo)
-        : `@${github_context.actor} has signed the CLA in ${prOwner}/${prRepo}#${pullRequestNo}`;
+        : `@${github_context.actor} has signed the ${documentKind()} in ${prOwner}/${prRepo}#${pullRequestNo}`;
     await client.rest.repos.createOrUpdateFileContents({
         owner,
         repo,
@@ -37737,6 +37738,7 @@ async function getSelfWorkflowId() {
 
 
 
+
 /** Checks that every author has signed, records new signatures and sets the check result. */
 async function setupClaCheck() {
     const committers = checkAllowList(await getCommitters());
@@ -37752,11 +37754,11 @@ async function setupClaCheck() {
         }
     }
     if (fromComments?.allSignedFlag || committerMap.notSigned.length === 0) {
-        info('All contributors have signed the CLA 📝 ✅ ');
+        info(`All contributors have signed the ${documentKind()} 📝 ✅ `);
         await reRunLastWorkFlowIfRequired();
     }
     else {
-        setFailed(`Committers of Pull Request number ${github_context.issue.number} have to sign the CLA 📝`);
+        setFailed(`Committers of Pull Request number ${github_context.issue.number} have to sign the ${documentKind()} 📝`);
     }
 }
 /** Reads the signature file, creating an empty one on the first run. */
