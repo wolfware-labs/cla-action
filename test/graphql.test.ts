@@ -8,7 +8,7 @@ const { default: getCommitters } = await import('../src/graphql')
 
 const user = (login: string, databaseId: number) => ({ id: `node-${login}`, databaseId, login })
 
-function commits(...entries: { author: any; committer?: any }[]) {
+function commits(...entries: { author: any; committer?: any; authors?: any }[]) {
   return {
     repository: {
       pullRequest: {
@@ -64,6 +64,80 @@ describe('getCommitters', () => {
       { name: 'carol', id: 3, pullRequestNo: 7 },
       { name: 'Dan Unlinked', id: '', pullRequestNo: 7 }
     ])
+  })
+
+  it('includes co-authors from Co-authored-by trailers, linked or not', async () => {
+    octokit.graphql.mockResolvedValue(
+      commits({
+        author: { name: 'Alice', email: 'a@x', user: user('alice', 1) },
+        authors: {
+          nodes: [
+            { name: 'Alice', email: 'a@x', user: user('alice', 1) },
+            { name: 'Bob', email: 'b@x', user: user('bob', 2) },
+            { name: 'Erin Unlinked', email: 'e@x', user: null }
+          ]
+        }
+      })
+    )
+    expect(await getCommitters()).toEqual([
+      { name: 'alice', id: 1, pullRequestNo: 7 },
+      { name: 'bob', id: 2, pullRequestNo: 7 },
+      { name: 'Erin Unlinked', id: '', pullRequestNo: 7 }
+    ])
+  })
+
+  it('counts the linked committer for an unlinked author, and adds the co-authors', async () => {
+    octokit.graphql.mockResolvedValue(
+      commits({
+        author: { name: 'Laptop Alice', email: 'alice@laptop', user: null },
+        committer: { name: 'Alice', user: user('alice', 1) },
+        authors: {
+          nodes: [
+            { name: 'Laptop Alice', email: 'alice@laptop', user: null },
+            { name: 'Bob', email: 'b@x', user: user('bob', 2) }
+          ]
+        }
+      })
+    )
+    expect(await getCommitters()).toEqual([
+      { name: 'alice', id: 1, pullRequestNo: 7 },
+      { name: 'bob', id: 2, pullRequestNo: 7 }
+    ])
+  })
+
+  it('tells contributors apart by account id or commit email, not by name', async () => {
+    octokit.graphql.mockResolvedValue(
+      commits(
+        {
+          author: { name: 'Sam', email: 's1@x', user: null },
+          authors: {
+            nodes: [
+              { name: 'Sam', email: 's1@x', user: null },
+              { name: 'Sam', email: 's2@x', user: null },
+              { name: 'alice', email: 'other@x', user: null }
+            ]
+          }
+        },
+        { author: { name: 'Alice', email: 'a@x', user: user('alice', 1) } },
+        { author: { name: 'Sam', email: 'S1@X', user: null } }
+      )
+    )
+    expect(await getCommitters()).toEqual([
+      { name: 'Sam', id: '', pullRequestNo: 7 },
+      { name: 'Sam', id: '', pullRequestNo: 7 },
+      { name: 'alice', id: '', pullRequestNo: 7 },
+      { name: 'alice', id: 1, pullRequestNo: 7 }
+    ])
+  })
+
+  it('fails instead of skipping co-authors past the first 100', async () => {
+    const nodes = Array.from({ length: 100 }, (_, i) => ({ name: `Co ${i}`, email: `c${i}@x`, user: user(`co${i}`, 100 + i) }))
+    octokit.graphql.mockResolvedValue(
+      commits({ oid: 'abc123', author: { name: 'Alice', email: 'a@x', user: user('alice', 1) }, authors: { totalCount: 101, nodes } } as any)
+    )
+    expect(octokit.graphql).not.toHaveBeenCalled()
+    await expect(getCommitters()).rejects.toThrow('commit abc123 has 101 authors; at most 100 can be checked')
+    expect(octokit.graphql.mock.calls[0][0]).toContain('authors(first: 100) { totalCount')
   })
 
   it('leaves out commits made by github-actions[bot]', async () => {

@@ -2,29 +2,25 @@ import * as core from '@actions/core'
 import { context } from '@actions/github'
 import { checkAllowList } from './checkAllowList'
 import getCommitters from './graphql'
-import { Committer, CommitterMap, SignatureFile } from './interfaces'
+import { CommentSignatures, Committer, CommitterMap, Signature, SignatureFile } from './interfaces'
+import { octokit } from './octokit'
 import { createFile, getFileContent, updateFile } from './persistence/persistence'
 import prCommentSetup from './pullrequest/pullRequestComment'
 import { reRunLastWorkFlowIfRequired } from './pullRerunRunner'
+import { escapeHtml } from './shared/escape'
 import { documentKind } from './shared/getInputs'
+
+/** Attempts to commit new signatures when another run changes the file in between. */
+const WRITE_ATTEMPTS = 3
 
 /** Checks that every author has signed, records new signatures and sets the check result. */
 export async function setupClaCheck(): Promise<void> {
   const committers = checkAllowList(await getCommitters())
-  const { content, sha } = await readOrCreateSignatureFile()
-  const committerMap = groupCommitters(committers, content)
+  const { committerMap, fromComments } = await checkAndRecord(committers)
 
-  const fromComments = await prCommentSetup(committerMap, committers)
-
-  if (fromComments?.newSigned.length) {
-    try {
-      await updateFile(sha, content, fromComments)
-    } catch (error) {
-      throw new Error(`Could not update the signature file: ${(error as Error).message}`)
-    }
-  }
-
-  if (fromComments?.allSignedFlag || committerMap.notSigned.length === 0) {
+  const allSigned = Boolean(fromComments?.allSignedFlag) || committerMap.notSigned.length === 0
+  await report(committerMap, allSigned)
+  if (allSigned) {
     core.info(`All contributors have signed the ${documentKind()} 📝 ✅ `)
     await reRunLastWorkFlowIfRequired()
   } else {
@@ -32,19 +28,107 @@ export async function setupClaCheck(): Promise<void> {
   }
 }
 
+/**
+ * Groups the authors against the signature file, updates the bot's comment
+ * and commits the new signatures found in the comments. When another run
+ * changed the file first (409 or 422), starts again from the file as it now
+ * stands, so every signature this run reports is in the file.
+ */
+async function checkAndRecord(committers: Committer[]): Promise<{ committerMap: CommitterMap; fromComments?: CommentSignatures }> {
+  let { content, sha } = await readOrCreateSignatureFile()
+  for (let attempt = 1; ; attempt++) {
+    const committerMap = groupCommitters(committers, content)
+    const fromComments = await prCommentSetup(committerMap, committers)
+    const newSigned = fromComments?.newSigned ?? []
+    if (newSigned.length === 0 || (await writeSignatures(sha, content, newSigned, attempt))) {
+      await confirmSignatures(newSigned)
+      return { committerMap, fromComments }
+    }
+    ;({ content, sha } = await readOrCreateSignatureFile())
+  }
+}
+
+/** Commits new signatures. False when another run changed the file first and attempts remain. */
+async function writeSignatures(sha: string, content: SignatureFile, newSigned: Signature[], attempt: number): Promise<boolean> {
+  try {
+    await updateFile(sha, content, { newSigned, onlyCommitters: [], allSignedFlag: false })
+    return true
+  } catch (error: any) {
+    const conflict = [409, 422].includes(Number(error.status))
+    if (!conflict || attempt === WRITE_ATTEMPTS) {
+      throw new Error(`Could not update the signature file: ${error.message}`)
+    }
+    core.info(`The signature file changed while it was being updated; reading it again (attempt ${attempt + 1} of ${WRITE_ATTEMPTS})`)
+    return false
+  }
+}
+
+/** Reacts to each recorded signing comment, so its author can see it counted. */
+async function confirmSignatures(signatures: Signature[]): Promise<void> {
+  for (const signature of signatures) {
+    try {
+      await octokit.rest.reactions.createForIssueComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        comment_id: signature.comment_id,
+        content: '+1'
+      })
+    } catch (error) {
+      core.warning(`Could not react to the signature of ${signature.name}: ${(error as Error).message}`)
+    }
+  }
+}
+
+/** Sets the step outputs and writes the job summary. */
+async function report(committerMap: CommitterMap, allSigned: boolean): Promise<void> {
+  const missing = committerMap.notSigned.map(committer => committer.name)
+  const unlinked = committerMap.unknown.map(committer => committer.name)
+  core.setOutput('all-signed', String(allSigned))
+  core.setOutput('missing', missing.join(','))
+  core.setOutput('unlinked', unlinked.join(','))
+
+  const kind = documentKind()
+  // Names of unlinked authors come from commit metadata, and summary cells are HTML.
+  const rows = [
+    ...committerMap.signed.map(committer => [escapeHtml(committer.name), 'signed']),
+    ...committerMap.notSigned.map(committer => [
+      escapeHtml(committer.name),
+      committer.id ? 'not signed' : 'not signed, commit email not linked to an account'
+    ])
+  ]
+  try {
+    await core.summary
+      .addHeading(`${kind} signatures for pull request #${context.issue.number}`, 3)
+      .addRaw(allSigned ? `All contributors have signed the ${kind}.` : `${missing.length} of ${rows.length} contributors still have to sign the ${kind}.`, true)
+      .addTable([[{ data: 'Contributor', header: true }, { data: 'Status', header: true }], ...rows])
+      .write()
+  } catch (error) {
+    // Outside GitHub Actions there is no summary file.
+    core.debug(`Could not write the job summary: ${(error as Error).message}`)
+  }
+}
+
 /** Reads the signature file, creating an empty one on the first run. */
 async function readOrCreateSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
-  let result
+  return (await readSignatureFile()) ?? createSignatureFile()
+}
+
+/** The signature file and its sha, or undefined when it does not exist yet. */
+async function readSignatureFile(): Promise<{ content: SignatureFile; sha: string } | undefined> {
+  let data: { sha: string; content: string }
   try {
-    result = await getFileContent()
+    data = (await getFileContent()).data as { sha: string; content: string }
   } catch (error: any) {
     if (Number(error.status) === 404) {
-      return createSignatureFile()
+      return undefined
     }
     throw new Error(`Could not retrieve repository contents. Status: ${error.status || 'unknown'}`)
   }
-  const data = result.data as { sha: string; content: string }
-  return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha }
+  try {
+    return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha }
+  } catch (error) {
+    throw new Error(`The signature file is not valid JSON: ${(error as Error).message}`)
+  }
 }
 
 async function createSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
@@ -53,7 +137,15 @@ async function createSignatureFile(): Promise<{ content: SignatureFile; sha: str
     const created = await createFile(Buffer.from(JSON.stringify(content, null, 3)).toString('base64'))
     core.info('Created the signature file')
     return { content, sha: created.data.content?.sha as string }
-  } catch (error) {
+  } catch (error: any) {
+    // 409 or 422 can mean another run created the file first; only a file that is now there proves it.
+    if ([409, 422].includes(Number(error.status))) {
+      const existing = await readSignatureFile()
+      if (existing) {
+        core.info('Another run created the signature file first; using it')
+        return existing
+      }
+    }
     throw new Error(
       `Error occurred when creating the signed contributors file: ${(error as Error).message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`
     )

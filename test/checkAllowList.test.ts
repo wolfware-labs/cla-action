@@ -25,6 +25,12 @@ describe('checkAllowList', () => {
     expect(names(result)).toEqual(['bob'])
   })
 
+  it('never skips an author whose commit email is not linked to an account', () => {
+    reset({ allowlist: 'dependabot[bot],*[bot]' })
+    const spoofed = { name: 'dependabot[bot]', id: '' as const, pullRequestNo: 7 }
+    expect(checkAllowList([spoofed, committer('renovate[bot]', 3)])).toEqual([spoofed])
+  })
+
   it('matches names case-sensitively', () => {
     reset({ allowlist: 'Alice' })
     expect(names(checkAllowList([committer('alice', 1)]))).toEqual(['alice'])

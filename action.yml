@@ -41,6 +41,13 @@ inputs:
   suggest-recheck:
     description: "Controls whether or not the action's comment should suggest that users comment `recheck`."
     default: "true"
+outputs:
+  all-signed:
+    description: "\"true\" when every author and co-author has signed, otherwise \"false\""
+  missing:
+    description: "Comma-separated names of the authors who still have to sign"
+  unlinked:
+    description: "Comma-separated names of authors whose commit email is not linked to a GitHub account"
 runs:
   using: "node24"
   main: 'dist/index.js'

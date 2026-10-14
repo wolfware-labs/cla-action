@@ -15,6 +15,10 @@ export async function run(): Promise<void> {
       }
       return
     }
+    if (input.getPathToDocument() === '') {
+      core.setFailed('The path-to-document input is required: set it to the URL of the document contributors sign.')
+      return
+    }
     await setupClaCheck()
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error))

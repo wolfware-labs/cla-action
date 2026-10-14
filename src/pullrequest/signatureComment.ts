@@ -26,12 +26,20 @@ export default function signatureWithPRComment(
   comments: IssueComment[]
 ): CommentSignatures {
   const signatures: Signature[] = []
-  for (const comment of comments) {
-    // Comments from deleted accounts have no user; a comment body can be null or empty.
-    if (!comment.user || !comment.body || comment.user.login === BOT_LOGIN) {
+  const signerIds = new Set<number>()
+  // Comments from deleted accounts have no user; a comment body can be null or empty.
+  const candidates = comments.filter(
+    (comment): comment is IssueComment & { user: NonNullable<IssueComment['user']>; body: string } =>
+      Boolean(comment.user && comment.body && comment.user.login !== BOT_LOGIN)
+  )
+  // Oldest first, so that someone who signed more than once is recorded with their first signing comment.
+  candidates.sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
+  for (const comment of candidates) {
+    if (signerIds.has(comment.user.id)) {
       continue
     }
     if (isSignature(comment.body.trim().toLowerCase())) {
+      signerIds.add(comment.user.id)
       signatures.push({
         name: comment.user.login,
         id: comment.user.id,

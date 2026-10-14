@@ -9,9 +9,9 @@ This is Wolfware's maintained fork of [contributor-assistant/github-action](http
 ## How it works
 
 1. A pull request is opened, updated or closed, and the workflow runs on `pull_request_target`, in the context of the base repository.
-2. The action reads the authors of all of the pull request's commits, drops anyone on the allowlist, and looks each one up in the signature file. Signing comments are read from every page of the conversation.
+2. The action reads the authors of all of the pull request's commits, including co-authors named in `Co-authored-by:` trailers, drops anyone on the allowlist, and looks each one up in the signature file. Signing comments are read from every page of the conversation.
 3. If someone has not signed, it comments on the pull request with a link to the document and fails the check. A contributor signs by commenting the sentence it asks for.
-4. Each signature is committed to the signature file with the contributor's GitHub account, id, the pull request and the date. Commits made by `github-actions[bot]` are never checked. One signature covers all later pull requests.
+4. Each signature is committed to the signature file with the contributor's GitHub account, id, the pull request and the date, and the action reacts with 👍 to the signing comment. Commits made by `github-actions[bot]` are never checked. One signature covers all later pull requests.
 5. When a pull request is merged, the action locks its conversation, so signature comments cannot be edited or deleted afterwards. Closing a pull request without merging does nothing.
 
 ## Setup
@@ -80,7 +80,7 @@ To store signatures in another repository, set `remote-organization-name` and `r
 
 ### Allowlist
 
-Accounts on the allowlist never have to sign. Use it for maintainers and for bots that cannot sign, such as `dependabot[bot]`. Entries are comma separated and match the whole account name; `*` matches any characters, so `*[bot]` covers every bot account and `bot*` matches `bot-builder` but not `robotics`.
+Accounts on the allowlist never have to sign. Use it for maintainers and for bots that cannot sign, such as `dependabot[bot]`, and for `Copilot` if Copilot co-authors commits in your repository. Entries are comma separated and match the whole account name; `*` matches any characters, so `*[bot]` covers every bot account and `bot*` matches `bot-builder` but not `robotics`. Only GitHub accounts match: an author whose commit email is not linked to an account always has to sign, whatever name the commit gives.
 
 ### Making the check required
 
@@ -88,7 +88,8 @@ The job reports a check named after the job (`cla` above). To block merging unti
 
 ## Known behaviour
 
-- **Concurrent writes.** Two runs that update the signature file at the same moment conflict, and the later one fails. The concurrency group above avoids this within a pull request; across pull requests, `recheck` records the signature.
+- **Concurrent writes.** When another run commits to the signature file first, the action reads the file again and commits the signatures that are still missing, up to three attempts. The concurrency group above keeps runs of one pull request from racing at all.
+- **Co-authors.** A co-author whose email is not linked to a GitHub account is listed as unlinked and cannot sign until the email is added to an account.
 
 ## Inputs
 
@@ -109,6 +110,16 @@ The job reports a check named after the job (`cla` above). To block merging unti
 | `use-dco-flag` | no | `false` | Ask for a Developer Certificate of Origin instead of a CLA. |
 | `lock-pullrequest-aftermerge` | no | `true` | Lock the pull request conversation after it merges. |
 | `suggest-recheck` | no | `true` | Suggest commenting `recheck` in the action's comment. |
+
+## Outputs
+
+| Name | Description |
+|---|---|
+| `all-signed` | `true` when every author and co-author has signed, otherwise `false`. |
+| `missing` | Comma-separated names of the authors who still have to sign. |
+| `unlinked` | Comma-separated names of authors whose commit email is not linked to a GitHub account. |
+
+The action also writes a job summary with each contributor's status.
 
 ## Environment variables
 
