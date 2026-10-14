@@ -123,6 +123,7 @@ The job reports a check named after the job (`cla` above). To block merging unti
 
 ```sh
 npm ci
+npm test            # Vitest suite under test/
 npm run typecheck   # TypeScript checks only
 npm run build       # type-checks, then bundles src/ into dist/index.js, which is what the action runs
 ```

@@ -9,7 +9,7 @@ Use [GitHub issues](https://github.com/wolfware-labs/cla-action/issues) for bugs
 ## Pull requests
 
 1. Install Node.js 24 and run `npm ci`.
-2. Change the TypeScript under `src/`.
+2. Change the TypeScript under `src/`, and add or update tests under `test/`. Run them with `npm test`.
 3. Run `npm run build`. The action runs `dist/index.js`, so commit `dist/` together with the source change that produced it. CI fails when they differ.
 4. Open a pull request against `master` and describe the change and how you tested it.
 
