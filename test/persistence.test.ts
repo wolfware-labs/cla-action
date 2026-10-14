@@ -48,8 +48,8 @@ describe('persistence', () => {
   })
 
   it('appends new signers and commits against the file sha', async () => {
-    const file = { signedContributors: [{ name: 'bob', id: 2 }] }
-    await updateFile('abc', file, { newSigned: [{ name: 'alice', id: 1 }], allSignedFlag: true })
+    const file = { signedContributors: [{ name: 'bob', id: 2 }] } as any
+    await updateFile('abc', file, { newSigned: [{ name: 'alice', id: 1 }] as any, onlyCommitters: [], allSignedFlag: true })
     const call = octokit.rest.repos.createOrUpdateFileContents.mock.calls[0][0]
     expect(call).toMatchObject({ owner: 'acme', repo: 'widgets', path: 'signatures/cla.json', sha: 'abc', branch: 'cla-signatures' })
     expect(call.message).toBe('@alice has signed the CLA in acme/widgets#7')
@@ -57,9 +57,17 @@ describe('persistence', () => {
     expect(decode(call.content)).toContain('\n  "signedContributors"')
   })
 
+  it('names the DCO in the default commit messages when use-dco-flag is true', async () => {
+    reset({ 'use-dco-flag': 'true' })
+    await createFile('eA==')
+    await updateFile('abc', { signedContributors: [] } as any, { newSigned: [{ name: 'alice', id: 1 }] as any, onlyCommitters: [], allSignedFlag: true })
+    const messages = octokit.rest.repos.createOrUpdateFileContents.mock.calls.map(c => c[0].message)
+    expect(messages).toEqual(['Creating file for storing DCO Signatures', '@alice has signed the DCO in acme/widgets#7'])
+  })
+
   it('fills every placeholder of a custom signed commit message', async () => {
     reset({ 'signed-commit-message': '$contributorName signed in $owner/$repo#$pullRequestNo' })
-    await updateFile('abc', { signedContributors: [] }, { newSigned: [], allSignedFlag: false })
+    await updateFile('abc', { signedContributors: [] }, { newSigned: [], onlyCommitters: [], allSignedFlag: false })
     expect(octokit.rest.repos.createOrUpdateFileContents.mock.calls[0][0].message).toBe('alice signed in acme/widgets#7')
   })
 })

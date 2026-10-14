@@ -63,9 +63,17 @@ describe('prCommentSetup', () => {
     expect(octokit.rest.issues.updateComment).not.toHaveBeenCalled()
   })
 
+  it('does not treat a comment by someone else as its own', async () => {
+    const lookalike = { ...botComment, id: 900, user: { login: 'mallory', id: 66 } }
+    octokit.rest.issues.listComments.mockResolvedValue({ data: [lookalike] })
+    await prCommentSetup({ signed: [], notSigned: [alice], unknown: [] }, [alice])
+    expect(octokit.rest.issues.updateComment).not.toHaveBeenCalled()
+    expect(octokit.rest.issues.createComment).toHaveBeenCalled()
+  })
+
   it('finds its DCO comment in DCO mode', async () => {
     reset({ 'use-dco-flag': 'true' })
-    const dcoComment = { ...botComment, body: '<sub>Posted by the ****DCO Assistant Lite bot****.</sub>' }
+    const dcoComment = { ...botComment, body: '<sub>Posted by the **DCO Assistant Lite bot**.</sub>' }
     octokit.rest.issues.listComments.mockResolvedValue({ data: [dcoComment] })
     await prCommentSetup({ signed: [], notSigned: [alice], unknown: [] }, [alice])
     expect(octokit.rest.issues.createComment).not.toHaveBeenCalled()
@@ -75,7 +83,7 @@ describe('prCommentSetup', () => {
   it('wraps API errors', async () => {
     octokit.rest.issues.listComments.mockRejectedValue(new Error('boom'))
     await expect(prCommentSetup({ signed: [], notSigned: [alice], unknown: [] }, [alice])).rejects.toThrow(
-      'Error occured when creating or editing the comments of the pull request: Error occured when getting  all the comments of the pull request: boom'
+      'Error occurred when creating or editing the comments of the pull request: Error occurred when getting the comments of the pull request: boom'
     )
   })
 })

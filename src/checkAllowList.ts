@@ -1,26 +1,23 @@
-import { CommittersDetails } from './interfaces'
+import { Committer } from './interfaces'
+import { getAllowList } from './shared/getInputs'
 
-import * as _ from 'lodash'
-import * as input from './shared/getInputs'
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-
-
-function isUserNotInAllowList(committer) {
-
-    const allowListPatterns: string[] = input.getAllowListItem().split(',')
-
-    return allowListPatterns.filter(function (pattern) {
-        pattern = pattern.trim()
-        if (pattern.includes('*')) {
-            const regex = _.escapeRegExp(pattern).split('\\*').join('.*')
-
-            return new RegExp(regex).test(committer)
-        }
-        return pattern === committer
-    }).length > 0
+/** Turns an allowlist entry into a matcher for a whole name; `*` matches any characters. */
+function matcher(pattern: string): (name: string) => boolean {
+  if (!pattern.includes('*')) {
+    return name => name === pattern
+  }
+  const regex = new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`)
+  return name => regex.test(name)
 }
 
-export function checkAllowList(committers: CommittersDetails[]): CommittersDetails[] {
-    const committersAfterAllowListCheck: CommittersDetails[] = committers.filter(committer => committer && !(isUserNotInAllowList !== undefined && isUserNotInAllowList(committer.name)))
-    return committersAfterAllowListCheck
+/** Removes authors on the allowlist. */
+export function checkAllowList(committers: Committer[]): Committer[] {
+  const matchers = getAllowList()
+    .split(',')
+    .map(entry => entry.trim())
+    .filter(entry => entry !== '')
+    .map(matcher)
+  return committers.filter(committer => committer && !matchers.some(matches => matches(committer.name)))
 }

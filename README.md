@@ -12,7 +12,7 @@ This is Wolfware's maintained fork of [contributor-assistant/github-action](http
 2. The action reads the pull request's commit authors, drops anyone on the allowlist, and looks each one up in the signature file.
 3. If someone has not signed, it comments on the pull request with a link to the document and fails the check. A contributor signs by commenting the sentence it asks for.
 4. Each signature is committed to the signature file with the contributor's GitHub account, id, the pull request and the date. Commits made by `github-actions[bot]` are never checked. One signature covers all later pull requests.
-5. When a pull request is merged, the action locks its conversation, so signature comments cannot be edited or deleted afterwards.
+5. When a pull request is merged, the action locks its conversation, so signature comments cannot be edited or deleted afterwards. Closing a pull request without merging does nothing.
 
 ## Setup
 
@@ -72,7 +72,7 @@ The `if:` sentence must match `custom-pr-sign-comment`. Expression comparison in
 
 ### Where signatures are stored
 
-Signatures go to `path-to-signatures` on `branch`. A dedicated branch such as `cla-signatures` keeps signature commits off your default branch. The branch must exist. The file does not: the action creates it on the first run. Do not create it by hand, because the action expects the exact format it writes.
+Signatures go to `path-to-signatures` on `branch`. A dedicated branch such as `cla-signatures` keeps signature commits off your default branch. The branch must exist. The file does not: the action creates it on the first run and checks the pull request as usual. Do not create it by hand, because the action expects the exact format it writes.
 
 Rules that require signed commits on that branch are fine: commits the action makes with `GITHUB_TOKEN` through the GitHub API are signed by GitHub. Rules that require pull requests or block direct pushes to the branch are not.
 
@@ -80,7 +80,7 @@ To store signatures in another repository, set `remote-organization-name` and `r
 
 ### Allowlist
 
-Accounts on the allowlist never have to sign. Use it for maintainers and for bots that cannot sign, such as `dependabot[bot]`. Entries are comma separated, and `*` matches any characters, for example `bot*`.
+Accounts on the allowlist never have to sign. Use it for maintainers and for bots that cannot sign, such as `dependabot[bot]`. Entries are comma separated and match the whole account name; `*` matches any characters, so `*[bot]` covers every bot account and `bot*` matches `bot-builder` but not `robotics`.
 
 ### Making the check required
 
@@ -88,7 +88,6 @@ The job reports a check named after the job (`cla` above). To block merging unti
 
 ## Known behaviour
 
-- **First run.** When the signature file does not exist, the action creates it and then fails the check with "Committers of pull request N have to sign the CLA", even if every author is on the allowlist. Comment `recheck` or rerun the job, and it passes.
 - **Large pull requests.** The action reads the first 100 commits and the first page of comments of a pull request ([#1](https://github.com/wolfware-labs/cla-action/issues/1)). Authors of later commits and signing comments past the first page are not seen.
 - **Concurrent writes.** Two runs that update the signature file at the same moment conflict, and the later one fails. The concurrency group above avoids this within a pull request; across pull requests, `recheck` records the signature.
 

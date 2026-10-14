@@ -6,8 +6,6 @@
     "lib": ["ES2023"],
     "types": ["node"],
     "strict": true,
-    "noImplicitAny": false,
-    "useUnknownInCatchVariables": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true

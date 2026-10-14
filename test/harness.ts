@@ -113,5 +113,6 @@ export function reset(overrides: Record<string, string> = {}) {
   octokit.rest.issues.createComment.mockResolvedValue({ data: {} })
   octokit.rest.issues.updateComment.mockResolvedValue({ data: {} })
   octokit.rest.issues.lock.mockResolvedValue({ data: {} })
-  octokit.rest.repos.createOrUpdateFileContents.mockResolvedValue({ data: {} })
+  octokit.rest.repos.createOrUpdateFileContents.mockResolvedValue({ data: { content: { sha: 'created-sha' } } })
+  octokit.rest.actions.reRunWorkflow.mockResolvedValue({ data: {} })
 }

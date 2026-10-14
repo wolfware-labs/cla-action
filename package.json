@@ -19,8 +19,7 @@
   ],
   "dependencies": {
     "@actions/core": "3.0.1",
-    "@actions/github": "9.1.1",
-    "lodash": "4.18.1"
+    "@actions/github": "9.1.1"
   },
   "author": "Wolfware LLC",
   "license": "Apache-2.0",
@@ -37,7 +36,6 @@
   },
   "type": "module",
   "devDependencies": {
-    "@types/lodash": "4.17.26",
     "@types/node": "24.19.2",
     "@vercel/ncc": "0.45.0",
     "@vitest/coverage-v8": "5.0.4",
