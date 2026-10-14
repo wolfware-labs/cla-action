@@ -19,6 +19,8 @@ export const context: any = {}
 
 export const octokit = {
   graphql: vi.fn(),
+  // Like Octokit's paginate: requests page after page until a short one, and returns every page's items.
+  paginate: vi.fn(),
   rest: {
     issues: {
       listComments: vi.fn(),
@@ -110,6 +112,14 @@ export function reset(overrides: Record<string, string> = {}) {
   octokitModule.isPersonalAccessTokenPresent.mockImplementation(() => true)
 
   octokit.rest.issues.listComments.mockResolvedValue({ data: [] })
+  octokit.paginate.mockImplementation(async (method: any, params: any) => {
+    const items = []
+    for (let page = 1; ; page++) {
+      const { data } = await method({ ...params, page })
+      items.push(...data)
+      if (data.length < params.per_page) return items
+    }
+  })
   octokit.rest.issues.createComment.mockResolvedValue({ data: {} })
   octokit.rest.issues.updateComment.mockResolvedValue({ data: {} })
   octokit.rest.issues.lock.mockResolvedValue({ data: {} })

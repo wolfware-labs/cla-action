@@ -37425,29 +37425,40 @@ function accountOf(commit) {
     }
     return { name: commit.author.name || commit.committer.name || '', id: '' };
 }
-/** The distinct authors of the pull request's commits. */
+/** The distinct authors of all of the pull request's commits, read 100 at a time. */
 async function getCommitters() {
-    let response;
-    try {
-        response = await octokit.graphql(QUERY, {
-            owner: github_context.repo.owner,
-            name: github_context.repo.repo,
-            number: github_context.issue.number,
-            cursor: ''
-        });
-    }
-    catch (error) {
-        throw new Error(`graphql call to get the committers details failed: ${error}`);
-    }
     const committers = [];
-    for (const edge of response.repository.pullRequest.commits.edges) {
-        const { name, id } = accountOf(edge.node.commit);
-        if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
-            continue;
+    let cursor = '';
+    for (;;) {
+        let commits;
+        try {
+            const response = await octokit.graphql(QUERY, {
+                owner: github_context.repo.owner,
+                name: github_context.repo.repo,
+                number: github_context.issue.number,
+                cursor
+            });
+            commits = response.repository.pullRequest.commits;
         }
-        committers.push({ name, id, pullRequestNo: github_context.issue.number });
+        catch (error) {
+            throw new Error(`graphql call to get the committers details failed: ${error}`);
+        }
+        for (const edge of commits.edges) {
+            const { name, id } = accountOf(edge.node.commit);
+            if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
+                continue;
+            }
+            committers.push({ name, id, pullRequestNo: github_context.issue.number });
+        }
+        if (!commits.pageInfo.hasNextPage) {
+            return committers;
+        }
+        const next = commits.pageInfo.endCursor;
+        if (!next || next === cursor) {
+            throw new Error('graphql call to get the committers details failed: the commit list did not advance to the next page');
+        }
+        cursor = next;
     }
-    return committers;
 }
 
 ;// CONCATENATED MODULE: ./src/persistence/persistence.ts
@@ -37553,7 +37564,6 @@ function commentContent(signed, committerMap) {
 ;// CONCATENATED MODULE: ./src/pullrequest/signatureComment.ts
 
 
-
 const BOT_LOGIN = 'github-actions[bot]';
 // The default sentences tolerate extra spaces and text around them.
 const DEFAULT_SENTENCE = {
@@ -37568,13 +37578,8 @@ function isSignature(body) {
     }
     return DEFAULT_SENTENCE[useDco() ? 'DCO' : 'CLA'].test(body);
 }
-/** Finds the signatures posted as comments on the pull request. */
-async function signatureWithPRComment(committerMap, committers) {
-    const { data: comments } = await octokit.rest.issues.listComments({
-        owner: github_context.repo.owner,
-        repo: github_context.repo.repo,
-        issue_number: github_context.issue.number
-    });
+/** Finds the signatures among the comments of the pull request. */
+function signatureWithPRComment(committerMap, committers, comments) {
     const signatures = [];
     for (const comment of comments) {
         // Comments from deleted accounts have no user; a comment body can be null or empty.
@@ -37608,13 +37613,16 @@ async function signatureWithPRComment(committerMap, committers) {
 
 const pullRequestComment_BOT_LOGIN = 'github-actions[bot]';
 /**
- * Posts or updates the bot's comment and collects signatures from the pull
- * request comments. Returns undefined when the bot had no comment yet.
+ * Posts or updates the bot's comment (written by github-actions[bot] and
+ * carrying its footer) and collects signatures from the pull request comments. Returns undefined when the bot had no comment yet.
  */
 async function prCommentSetup(committerMap, committers) {
     const signed = committerMap.notSigned.length === 0;
     try {
-        const botComment = await getBotComment();
+        // Read once: both the bot's comment and the signing comments come from this list.
+        const comments = await listComments();
+        const marker = `${documentKind()} Assistant Lite bot`;
+        const botComment = comments.find(comment => comment.user?.login === pullRequestComment_BOT_LOGIN && comment.body?.includes(marker));
         if (!botComment) {
             if (!signed) {
                 await createComment(commentContent(false, committerMap));
@@ -37622,7 +37630,7 @@ async function prCommentSetup(committerMap, committers) {
             return undefined;
         }
         // People who signed by commenting since the signature file was last written.
-        const fromComments = await signatureWithPRComment(committerMap, committers);
+        const fromComments = signatureWithPRComment(committerMap, committers, comments);
         fromComments.allSignedFlag = allSigned(committerMap, fromComments.onlyCommitters, committers);
         committerMap.signed.push(...fromComments.newSigned.map(({ name, id, pullRequestNo }) => ({ name, id, pullRequestNo })));
         committerMap.notSigned = committerMap.notSigned.filter(committer => !fromComments.newSigned.some(signature => signature.id === committer.id));
@@ -37638,16 +37646,15 @@ function allSigned(committerMap, signedInComments, committers) {
     const ids = new Set([...committerMap.signed, ...signedInComments].map(committer => committer.id));
     return committers.every(committer => ids.has(committer.id));
 }
-/** The bot's own comment: written by github-actions[bot] and carrying its footer. */
-async function getBotComment() {
-    const marker = `${documentKind()} Assistant Lite bot`;
+/** Every comment of the pull request, across all pages. */
+async function listComments() {
     try {
-        const { data: comments } = await octokit.rest.issues.listComments({
+        return await octokit.paginate(octokit.rest.issues.listComments, {
             owner: github_context.repo.owner,
             repo: github_context.repo.repo,
-            issue_number: github_context.issue.number
+            issue_number: github_context.issue.number,
+            per_page: 100
         });
-        return comments.find(comment => comment.user?.login === pullRequestComment_BOT_LOGIN && comment.body?.includes(marker));
     }
     catch (error) {
         throw new Error(`Error occurred when getting the comments of the pull request: ${error.message}`);

@@ -1,6 +1,5 @@
 import { context } from '@actions/github'
-import { octokit } from '../octokit'
-import { CommentSignatures, Committer, CommitterMap, Signature } from '../interfaces'
+import { CommentSignatures, Committer, CommitterMap, IssueComment, Signature } from '../interfaces'
 import { getCustomPrSignComment, useDco } from '../shared/getInputs'
 
 const BOT_LOGIN = 'github-actions[bot]'
@@ -20,17 +19,12 @@ function isSignature(body: string): boolean {
   return DEFAULT_SENTENCE[useDco() ? 'DCO' : 'CLA'].test(body)
 }
 
-/** Finds the signatures posted as comments on the pull request. */
-export default async function signatureWithPRComment(
+/** Finds the signatures among the comments of the pull request. */
+export default function signatureWithPRComment(
   committerMap: CommitterMap,
-  committers: Committer[]
-): Promise<CommentSignatures> {
-  const { data: comments } = await octokit.rest.issues.listComments({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    issue_number: context.issue.number
-  })
-
+  committers: Committer[],
+  comments: IssueComment[]
+): CommentSignatures {
   const signatures: Signature[] = []
   for (const comment of comments) {
     // Comments from deleted accounts have no user; a comment body can be null or empty.

@@ -9,7 +9,7 @@ This is Wolfware's maintained fork of [contributor-assistant/github-action](http
 ## How it works
 
 1. A pull request is opened, updated or closed, and the workflow runs on `pull_request_target`, in the context of the base repository.
-2. The action reads the pull request's commit authors, drops anyone on the allowlist, and looks each one up in the signature file.
+2. The action reads the authors of all of the pull request's commits, drops anyone on the allowlist, and looks each one up in the signature file. Signing comments are read from every page of the conversation.
 3. If someone has not signed, it comments on the pull request with a link to the document and fails the check. A contributor signs by commenting the sentence it asks for.
 4. Each signature is committed to the signature file with the contributor's GitHub account, id, the pull request and the date. Commits made by `github-actions[bot]` are never checked. One signature covers all later pull requests.
 5. When a pull request is merged, the action locks its conversation, so signature comments cannot be edited or deleted afterwards. Closing a pull request without merging does nothing.
@@ -88,7 +88,6 @@ The job reports a check named after the job (`cla` above). To block merging unti
 
 ## Known behaviour
 
-- **Large pull requests.** The action reads the first 100 commits and the first page of comments of a pull request ([#1](https://github.com/wolfware-labs/cla-action/issues/1)). Authors of later commits and signing comments past the first page are not seen.
 - **Concurrent writes.** Two runs that update the signature file at the same moment conflict, and the later one fails. The concurrency group above avoids this within a pull request; across pull requests, `recheck` records the signature.
 
 ## Inputs

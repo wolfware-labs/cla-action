@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { committer, octokit, prComment, reset } from './harness'
+import { committer, prComment, reset } from './harness'
 
 vi.mock('@actions/core', async () => (await import('./harness')).core)
 vi.mock('@actions/github', async () => (await import('./harness')).github)
@@ -11,32 +11,21 @@ const CLA = 'I have read the CLA Document and I hereby sign the CLA'
 const alice = committer('alice', 1)
 const bob = committer('bob', 2)
 
-function comments(...list: unknown[]) {
-  octokit.rest.issues.listComments.mockResolvedValue({ data: list })
+let list: any[] = []
+
+function comments(...items: unknown[]) {
+  list = items
 }
 
 async function signers(notSigned = [alice, bob], committers = [alice, bob]) {
   const map = { signed: [], notSigned, unknown: [] }
-  return signatureWithPRComment(map, committers)
+  return signatureWithPRComment(map, committers, list)
 }
 
 describe('signatureWithPRComment', () => {
-  beforeEach(() => reset())
-
-  it('reads the comments of the pull request', async () => {
-    comments()
-    await signers()
-    expect(octokit.rest.issues.listComments).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets', issue_number: 7 })
-  })
-
-  it('reads only the first page of comments (current behaviour)', async () => {
-    const firstPage = Array.from({ length: 30 }, (_, i) => prComment(`user${i}`, 1000 + i, 'looks good'))
-    octokit.rest.issues.listComments
-      .mockResolvedValueOnce({ data: firstPage })
-      .mockResolvedValueOnce({ data: [prComment('bob', 2, CLA)] })
-    const result = await signers()
-    expect(octokit.rest.issues.listComments).toHaveBeenCalledTimes(1)
-    expect(result.newSigned).toEqual([])
+  beforeEach(() => {
+    reset()
+    list = []
   })
 
   it('records a committer who posted the default sentence', async () => {
