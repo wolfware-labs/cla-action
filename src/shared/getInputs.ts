@@ -20,9 +20,6 @@ export const getBranch = (): string =>
 export const getAllowListItem = (): string =>
   core.getInput('allowlist', { required: false })
 
-export const getEmptyCommitFlag = (): string =>
-  core.getInput('empty-commit-flag', { required: false })
-
 export const getSignedCommitMessage = (): string =>
   core.getInput('signed-commit-message', { required: false })
 

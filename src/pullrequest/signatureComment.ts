@@ -8,7 +8,7 @@ import * as core from '@actions/core'
 export default async function signatureWithPRComment(committerMap: CommitterMap, committers): Promise<ReactedCommitterMap> {
 
     let repoId = context.payload.repository!.id
-    let prResponse = await octokit.issues.listComments({
+    let prResponse = await octokit.rest.issues.listComments({
         owner: context.repo.owner,
         repo: context.repo.repo,
         issue_number: context.issue.number
@@ -17,6 +17,10 @@ export default async function signatureWithPRComment(committerMap: CommitterMap,
     let filteredListOfPRComments = [] as CommittersDetails[]
 
     prResponse?.data.map((prComment) => {
+        // Comments from deleted accounts have no user; empty comments have no body.
+        if (!prComment.user || prComment.body === undefined) {
+            return
+        }
         listOfPRComments.push({
             name: prComment.user.login,
             id: prComment.user.id,
