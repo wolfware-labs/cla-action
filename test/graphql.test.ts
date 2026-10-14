@@ -86,6 +86,16 @@ describe('getCommitters', () => {
     ])
   })
 
+  it('fails instead of skipping co-authors past the first 100', async () => {
+    const nodes = Array.from({ length: 100 }, (_, i) => ({ name: `Co ${i}`, email: `c${i}@x`, user: user(`co${i}`, 100 + i) }))
+    octokit.graphql.mockResolvedValue(
+      commits({ oid: 'abc123', author: { name: 'Alice', email: 'a@x', user: user('alice', 1) }, authors: { totalCount: 101, nodes } } as any)
+    )
+    expect(octokit.graphql).not.toHaveBeenCalled()
+    await expect(getCommitters()).rejects.toThrow('commit abc123 has 101 authors; at most 100 can be checked')
+    expect(octokit.graphql.mock.calls[0][0]).toContain('authors(first: 100) { totalCount')
+  })
+
   it('leaves out commits made by github-actions[bot]', async () => {
     octokit.graphql.mockResolvedValue(
       commits({ author: { name: 'github-actions[bot]', email: 'x', user: user('github-actions[bot]', 41898282) } })

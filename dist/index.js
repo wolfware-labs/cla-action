@@ -37406,9 +37406,10 @@ const QUERY = `
           edges {
             node {
               commit {
+                oid
                 author { email name user { id databaseId login } }
                 committer { name user { id databaseId login } }
-                authors(first: 20) { nodes { email name user { id databaseId login } } }
+                authors(first: 100) { totalCount nodes { email name user { id databaseId login } } }
               }
             }
             cursor
@@ -37422,9 +37423,13 @@ const account = (actor) => actor.user ? { name: actor.user.login, id: actor.user
 /**
  * Everyone who wrote a commit: the author and the co-authors named in
  * Co-authored-by trailers, which GitHub lists under `authors`. A commit
- * without that list falls back to its author, then its committer.
+ * without that list falls back to its author, then its committer. A commit
+ * with more authors than one page holds fails the check, so nobody is skipped.
  */
 function accountsOf(commit) {
+    if (commit.authors && (commit.authors.totalCount ?? 0) > commit.authors.nodes.length) {
+        throw new Error(`commit ${commit.oid} has ${commit.authors.totalCount} authors; at most ${commit.authors.nodes.length} can be checked`);
+    }
     if (commit.authors?.nodes.length) {
         return commit.authors.nodes.map(account);
     }
@@ -37847,9 +37852,8 @@ async function report(committerMap, allSigned) {
 }
 /** Reads the signature file, creating an empty one on the first run. */
 async function readOrCreateSignatureFile() {
-    let result;
     try {
-        result = await getFileContent();
+        return await readSignatureFile();
     }
     catch (error) {
         if (Number(error.status) === 404) {
@@ -37857,7 +37861,9 @@ async function readOrCreateSignatureFile() {
         }
         throw new Error(`Could not retrieve repository contents. Status: ${error.status || 'unknown'}`);
     }
-    const data = result.data;
+}
+async function readSignatureFile() {
+    const data = (await getFileContent()).data;
     return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha };
 }
 async function createSignatureFile() {
@@ -37868,6 +37874,16 @@ async function createSignatureFile() {
         return { content, sha: created.data.content?.sha };
     }
     catch (error) {
+        if ([409, 422].includes(Number(error.status))) {
+            // Another run created the file first: use that one.
+            info('Another run created the signature file first; reading it');
+            try {
+                return await readSignatureFile();
+            }
+            catch (readError) {
+                throw new Error(`Could not retrieve repository contents. Status: ${readError.status || 'unknown'}`);
+            }
+        }
         throw new Error(`Error occurred when creating the signed contributors file: ${error.message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`);
     }
 }

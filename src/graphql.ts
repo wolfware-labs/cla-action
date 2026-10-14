@@ -14,9 +14,10 @@ const QUERY = `
           edges {
             node {
               commit {
+                oid
                 author { email name user { id databaseId login } }
                 committer { name user { id databaseId login } }
-                authors(first: 20) { nodes { email name user { id databaseId login } } }
+                authors(first: 100) { totalCount nodes { email name user { id databaseId login } } }
               }
             }
             cursor
@@ -33,9 +34,10 @@ interface GitActor {
 }
 
 interface Commit {
+  oid?: string
   author: GitActor
   committer: GitActor
-  authors?: { nodes: GitActor[] }
+  authors?: { totalCount?: number; nodes: GitActor[] }
 }
 
 const account = (actor: GitActor): { name: string; id: number | '' } =>
@@ -44,9 +46,13 @@ const account = (actor: GitActor): { name: string; id: number | '' } =>
 /**
  * Everyone who wrote a commit: the author and the co-authors named in
  * Co-authored-by trailers, which GitHub lists under `authors`. A commit
- * without that list falls back to its author, then its committer.
+ * without that list falls back to its author, then its committer. A commit
+ * with more authors than one page holds fails the check, so nobody is skipped.
  */
 function accountsOf(commit: Commit): { name: string; id: number | '' }[] {
+  if (commit.authors && (commit.authors.totalCount ?? 0) > commit.authors.nodes.length) {
+    throw new Error(`commit ${commit.oid} has ${commit.authors.totalCount} authors; at most ${commit.authors.nodes.length} can be checked`)
+  }
   if (commit.authors?.nodes.length) {
     return commit.authors.nodes.map(account)
   }

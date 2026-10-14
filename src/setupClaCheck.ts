@@ -104,16 +104,18 @@ async function report(committerMap: CommitterMap, allSigned: boolean): Promise<v
 
 /** Reads the signature file, creating an empty one on the first run. */
 async function readOrCreateSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
-  let result
   try {
-    result = await getFileContent()
+    return await readSignatureFile()
   } catch (error: any) {
     if (Number(error.status) === 404) {
       return createSignatureFile()
     }
     throw new Error(`Could not retrieve repository contents. Status: ${error.status || 'unknown'}`)
   }
-  const data = result.data as { sha: string; content: string }
+}
+
+async function readSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
+  const data = (await getFileContent()).data as { sha: string; content: string }
   return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha }
 }
 
@@ -123,7 +125,16 @@ async function createSignatureFile(): Promise<{ content: SignatureFile; sha: str
     const created = await createFile(Buffer.from(JSON.stringify(content, null, 3)).toString('base64'))
     core.info('Created the signature file')
     return { content, sha: created.data.content?.sha as string }
-  } catch (error) {
+  } catch (error: any) {
+    if ([409, 422].includes(Number(error.status))) {
+      // Another run created the file first: use that one.
+      core.info('Another run created the signature file first; reading it')
+      try {
+        return await readSignatureFile()
+      } catch (readError: any) {
+        throw new Error(`Could not retrieve repository contents. Status: ${readError.status || 'unknown'}`)
+      }
+    }
     throw new Error(
       `Error occurred when creating the signed contributors file: ${(error as Error).message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`
     )

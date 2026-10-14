@@ -185,6 +185,23 @@ describe('setupClaCheck', () => {
     expect(core.setFailed).toHaveBeenCalledWith('Committers of Pull Request number 7 have to sign the CLA 📝')
   })
 
+  it('uses the file another run created first', async () => {
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockRejectedValueOnce(httpError(404)).mockResolvedValue(signatureFile([{ name: 'alice', id: 1 }]))
+    octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(httpError(422))
+    await setupClaCheck()
+    expect(octokit.rest.repos.createOrUpdateFileContents).toHaveBeenCalledTimes(1)
+    expect(octokit.rest.repos.getContent).toHaveBeenCalledTimes(2)
+    expect(core.setFailed).not.toHaveBeenCalled()
+  })
+
+  it('stops when the file another run created cannot be read', async () => {
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockRejectedValueOnce(httpError(404)).mockRejectedValue(httpError(500))
+    octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(httpError(409))
+    await expect(setupClaCheck()).rejects.toThrow('Could not retrieve repository contents. Status: 500')
+  })
+
   it('passes the first run when every author is allowlisted', async () => {
     reset({ allowlist: 'alice', branch: 'cla-signatures' })
     authors(['alice', 1])
