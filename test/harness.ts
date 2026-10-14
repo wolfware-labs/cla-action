@@ -88,7 +88,8 @@ export function httpError(status: number, message = `HTTP ${status}`) {
 }
 
 export function reset(overrides: Record<string, string> = {}) {
-  vi.clearAllMocks()
+  // Reset, not just clear: a queued mockResolvedValueOnce must not leak into the next test.
+  vi.resetAllMocks()
   for (const key of Object.keys(inputs)) delete inputs[key]
   Object.assign(inputs, INPUT_DEFAULTS, overrides)
 
