@@ -54,6 +54,15 @@ describe('prCommentSetup', () => {
     expect(body).toContain('**1** out of **2** committers have signed the CLA.')
   })
 
+  it('posts a second request when its comment is past the first page (current behaviour)', async () => {
+    const firstPage = Array.from({ length: 30 }, (_, i) => ({ id: i, body: 'hi', user: { login: `user${i}`, id: 1000 + i } }))
+    octokit.rest.issues.listComments.mockResolvedValueOnce({ data: firstPage }).mockResolvedValueOnce({ data: [botComment] })
+    await prCommentSetup({ signed: [], notSigned: [alice], unknown: [] }, [alice])
+    expect(octokit.rest.issues.listComments).toHaveBeenCalledTimes(1)
+    expect(octokit.rest.issues.createComment).toHaveBeenCalled()
+    expect(octokit.rest.issues.updateComment).not.toHaveBeenCalled()
+  })
+
   it('finds its DCO comment in DCO mode', async () => {
     reset({ 'use-dco-flag': 'true' })
     const dcoComment = { ...botComment, body: '<sub>Posted by the ****DCO Assistant Lite bot****.</sub>' }

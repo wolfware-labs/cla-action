@@ -29,6 +29,16 @@ describe('signatureWithPRComment', () => {
     expect(octokit.rest.issues.listComments).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets', issue_number: 7 })
   })
 
+  it('reads only the first page of comments (current behaviour)', async () => {
+    const firstPage = Array.from({ length: 30 }, (_, i) => prComment(`user${i}`, 1000 + i, 'looks good'))
+    octokit.rest.issues.listComments
+      .mockResolvedValueOnce({ data: firstPage })
+      .mockResolvedValueOnce({ data: [prComment('bob', 2, CLA)] })
+    const result = await signers()
+    expect(octokit.rest.issues.listComments).toHaveBeenCalledTimes(1)
+    expect(result.newSigned).toEqual([])
+  })
+
   it('records a committer who posted the default sentence', async () => {
     comments(prComment('alice', 1, CLA))
     const result = await signers()
