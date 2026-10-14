@@ -55173,7 +55173,7 @@ async function getCLAFileContentandSHA(committers, committerMap) {
         result = await getFileContent();
     }
     catch (error) {
-        if (error.status === "404") {
+        if (Number(error.status) === 404) {
             return createClaFileAndPRComment(committers, committerMap);
         }
         else {
