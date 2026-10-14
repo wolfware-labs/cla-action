@@ -1,152 +1,136 @@
-![build](https://github.com/cla-assistant/github-action/workflows/build/badge.svg)
+[![build](https://github.com/wolfware-labs/cla-action/actions/workflows/nodejs.yml/badge.svg)](https://github.com/wolfware-labs/cla-action/actions/workflows/nodejs.yml)
 
+# CLA Assistant GitHub Action
 
-> [!IMPORTANT]
-> **This repository is no longer actively maintained.** I no longer have the bandwidth to maintain this project. The repository has been archived and is now read-only. 
->
-> You are welcome to **fork this repository** and continue development independently. All existing releases remain functional. Thank you to all contributors and users for your support over the years.
+A GitHub Action that asks contributors to sign a Contributor License Agreement (CLA) or a Developer Certificate of Origin (DCO) from inside a pull request, and records their signatures in a JSON file in a repository. There is no external service and no database: the signature file lives in the same repository or in another repository you choose.
 
-# Handling CLAs and DCOs via GitHub Action
+This is Wolfware's maintained fork of [contributor-assistant/github-action](https://github.com/contributor-assistant/github-action), which is archived. Wolfware repositories use it, and changes are made here. Credit for the original work goes to its authors and contributors, listed below.
 
-Streamline your workflow and let this GitHub Action (a lite version of [CLA Assistant](https://github.com/cla-assistant/cla-assistant)) handle the legal side of contributions to a repository for you. CLA assistant GitHub action enables contributors to sign CLAs from within a pull request. With this GitHub Action we could get rid of the need for a centrally managed database by **storing the contributor's signature data** in a decentralized way - **in the same repository's file system** or **in a remote repository** which can be even a private repository.
+## How it works
 
-### Features
-1. decentralized data storage
-1. fully integrated within github environment
-1. no User Interface is required
-1. contributors can sign the CLA or DCO by just posting a Pull Request comment
-1. signatures will be stored in a file inside the repository or in a remote repository
-1. signatures can also be stored inside a private repository
-1. versioning of signatures
+1. A pull request is opened, updated or closed, and the workflow runs on `pull_request_target`, in the context of the base repository.
+2. The action reads the pull request's commit authors, drops anyone on the allowlist, and looks each one up in the signature file.
+3. If someone has not signed, it comments on the pull request with a link to the document and fails the check. A contributor signs by commenting the sentence it asks for.
+4. Each signature is committed to the signature file with the contributor's GitHub account, id, the pull request and the date. Commits made by `github-actions[bot]` are never checked. One signature covers all later pull requests.
+5. When a pull request is merged, the action locks its conversation, so signature comments cannot be edited or deleted afterwards.
 
-## Configure Contributor License Agreement within two minutes
+## Setup
 
-#### 1. Add the following Workflow File to your repository in this path`.github/workflows/cla.yml`
+Add `.github/workflows/cla.yml` to your repository:
 
-```yml
-name: "CLA Assistant"
+```yaml
+name: CLA
+
 on:
   issue_comment:
     types: [created]
   pull_request_target:
-    types: [opened,closed,synchronize]
+    types: [opened, closed, synchronize]
 
-# explicitly configure permissions, in case your GITHUB_TOKEN workflow permissions are set to read-only in repository settings
 permissions:
   actions: write
-  contents: write # this can be 'read' if the signatures are in remote repository
+  contents: write # read is enough when signatures are stored in another repository
+  issues: write # to lock merged pull requests
   pull-requests: write
   statuses: write
 
+# One group per pull request. A newer run may replace a pending one, which
+# loses nothing: every run reads the pull request's comments again. The
+# merged-close run has its own group so that a comment run cannot replace it.
+concurrency:
+  group: cla-${{ github.event.action == 'closed' && 'close-' || '' }}${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
-  CLAAssistant:
+  cla:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Comments count only on pull requests, and a close counts only after a merge.
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+        (github.event.action != 'closed' || github.event.pull_request.merged)) ||
+      (github.event.issue.pull_request &&
+        (github.event.comment.body == 'recheck' ||
+         github.event.comment.body == 'I have read the CLA document and I hereby sign the CLA'))
     steps:
-      - name: "CLA Assistant"
-        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
-        uses: contributor-assistant/github-action@v2.6.1
+      - uses: wolfware-labs/cla-action@ebeb701a6dddbd47e86651cf6f85e951538cd2b8 # master, 2026-10-13
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # the below token should have repo scope and must be manually added by you in the repository's secret
-          # This token is required only if you have configured to store the signatures in a remote repository/organization
-          # PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         with:
-          path-to-signatures: 'signatures/version1/cla.json'
-          path-to-document: 'https://github.com/cla-assistant/github-action/blob/master/SAPCLA.md' # e.g. a CLA or a DCO document
-          # branch should not be protected
-          branch: 'main'
-          allowlist: user1,bot*
-
-         # the followings are the optional inputs - If the optional inputs are not given, then default values will be taken
-          #remote-organization-name: enter the remote organization name where the signatures should be stored (Default is storing the signatures in the same repository)
-          #remote-repository-name: enter the  remote repository name where the signatures should be stored (Default is storing the signatures in the same repository)
-          #create-file-commit-message: 'For example: Creating file for storing CLA Signatures'
-          #signed-commit-message: 'For example: $contributorName has signed the CLA in $owner/$repo#$pullRequestNo'
-          #custom-notsigned-prcomment: 'pull request comment with Introductory message to ask new contributors to sign'
-          #custom-pr-sign-comment: 'The signature to be committed in order to sign the CLA'
-          #custom-allsigned-prcomment: 'pull request comment when all contributors has signed, defaults to **CLA Assistant Lite bot** All Contributors have signed the CLA.'
-          #lock-pullrequest-aftermerge: false - if you don't want this bot to automatically lock the pull request after merging (default - true)
-          #use-dco-flag: true - If you are using DCO instead of CLA
-
+          path-to-document: https://github.com/<owner>/<repo>/blob/main/CLA.md
+          path-to-signatures: signatures/cla.json
+          branch: cla-signatures
+          custom-pr-sign-comment: I have read the CLA document and I hereby sign the CLA
+          allowlist: dependabot[bot],renovate[bot]
 ```
 
-##### Demo for step 1
+Pin the action to a full commit SHA, and move the pin when you update, as GitHub's [security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) recommends.
 
-![add-cla-file](https://github.com/cla-assistant/github-action/blob/master/images/adding-clafile.gif?raw=true)
+The `if:` sentence must match `custom-pr-sign-comment`. Expression comparison in GitHub Actions ignores case.
 
-#### 2. Pull Request event triggers CLA Workflow
+`pull_request_target` runs the workflow file from the pull request's base branch, with a write token, also for pull requests from forks. The action never checks out pull request code; keep it that way if you add steps.
 
-CLA action workflow will be triggered on all Pull Request `opened, synchronize, closed`. This workflow will always run in the base repository and that's why we are making use of the [pull_request_target](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#pull_request_target) event.
-<br/> When the CLA workflow is triggered on pull request `closed` event, it will lock the Pull Request conversation after the Pull Request merge so that the contributors cannot modify or delete the signatures (Pull Request comment) later. This feature is optional.
+### Where signatures are stored
 
-#### 3. Signing the CLA
+Signatures go to `path-to-signatures` on `branch`. A dedicated branch such as `cla-signatures` keeps signature commits off your default branch. The branch must exist. The file does not: the action creates it on the first run. Do not create it by hand, because the action expects the exact format it writes.
 
-CLA workflow creates a comment on Pull Request asking contributors who have not signed  CLA to sign and also fails the pull request status check with a `failure`. The contributors are requested to sign the CLA within the pull request by copy and pasting **"I have read the CLA Document and I hereby sign the CLA"** as a Pull Request comment like below.
-If the contributor has already signed the CLA, then the PR status will pass with `success`. <br/>
+Rules that require signed commits on that branch are fine: commits the action makes with `GITHUB_TOKEN` through the GitHub API are signed by GitHub. Rules that require pull requests or block direct pushes to the branch are not.
 
-##### Demo for step 2 and 3
+To store signatures in another repository, set `remote-organization-name` and `remote-repository-name`, and add a `PERSONAL_ACCESS_TOKEN` secret with write access to that repository.
 
-![signature-process](https://github.com/cla-assistant/github-action/blob/master/images/signature-process.gif?raw=true)
+### Allowlist
 
-<br/>
+Accounts on the allowlist never have to sign. Use it for maintainers and for bots that cannot sign, such as `dependabot[bot]`. Entries are comma separated, and `*` matches any characters, for example `bot*`.
 
-#### 4. Signatures stored in a JSON file
+### Making the check required
 
-After the contributor signed a CLA, the contributor's signature with metadata will be stored in a JSON file inside the repository and you can specify the custom path to this file with `path-to-signatures` input in the workflow. <br/> The default path is `path-to-signatures: 'signatures/version1/cla.json'`.
+The job reports a check named after the job (`cla` above). To block merging until everyone has signed, add it as a required status check in a branch ruleset or branch protection rule, with GitHub Actions as the source.
 
-The signature can be also stored in a remote repository which can be done by enabling the optional inputs `remote-organization-name`: `<your org name>`
-and `remote-repository-name`: `<your repo name>` in your CLA workflow file.
+## Known behaviour
 
-**NOTE:** You do not need to create this file manually. Our workflow will create the signature file if it does not already exist. Manually creating this file will cause the workflow to fail.
+- **First run.** When the signature file does not exist, the action creates it and then fails the check with "Committers of pull request N have to sign the CLA", even if every author is on the allowlist. Comment `recheck` or rerun the job, and it passes.
+- **Large pull requests.** The action reads the first 100 commits and the first page of comments of a pull request ([#1](https://github.com/wolfware-labs/cla-action/issues/1)). Authors of later commits and signing comments past the first page are not seen.
+- **Concurrent writes.** Two runs that update the signature file at the same moment conflict, and the later one fails. The concurrency group above avoids this within a pull request; across pull requests, `recheck` records the signature.
 
-##### Demo for step 4
+## Inputs
 
-![signature-storage-file](https://github.com/cla-assistant/github-action/blob/master/images/signature-storage-file.gif?raw=true)
+| Name | Required | Default | Description |
+|---|---|---|---|
+| `path-to-document` | yes | | Full URL of the document contributors sign, for example a `CLA.md` in your repository. |
+| `path-to-signatures` | no | `./signatures/cla.json` | Path of the JSON file that stores signatures. |
+| `branch` | no | `master` | Branch the signature file is committed to. It must exist. |
+| `allowlist` | no | | Comma-separated accounts that do not need to sign. `*` is a wildcard. |
+| `remote-organization-name` | no | | Owner of another repository that stores the signatures. |
+| `remote-repository-name` | no | | Name of another repository that stores the signatures. |
+| `create-file-commit-message` | no | | Commit message when the signature file is created. |
+| `signed-commit-message` | no | | Commit message when someone signs. `$contributorName`, `$owner`, `$repo` and `$pullRequestNo` are replaced. |
+| `signed-empty-commit-message` | no | | Not used. Accepted so that existing workflows keep working. |
+| `custom-notsigned-prcomment` | no | | Comment asking new contributors to sign. `$you` is replaced with "you" or "you all". |
+| `custom-pr-sign-comment` | no | | The sentence contributors comment to sign. |
+| `custom-allsigned-prcomment` | no | | Comment when everyone has signed. |
+| `use-dco-flag` | no | `false` | Ask for a Developer Certificate of Origin instead of a CLA. |
+| `lock-pullrequest-aftermerge` | no | `true` | Lock the pull request conversation after it merges. |
+| `suggest-recheck` | no | `true` | Suggest commenting `recheck` in the action's comment. |
 
-#### 5. Users and bots in allowlist
+## Environment variables
 
-If a GitHub username is included in the allowlist, they will not be required to sign a CLA. You can make use of this feature If you don't want your colleagues working in the same team/organisation to sign a CLA. And also, since there's no way for bot users (such as Dependabot or Greenkeeper) to sign a CLA, you may want to add them in `allowlist`. You can do so by adding their names in a comma separated string to the `allowlist` input in the CLA  workflow file(in this case `dependabot[bot],greenkeeper[bot]`). You can also use wildcard symbol in case you want to allow all bot users something like `bot*`.
+| Name | Required | Description |
+|---|---|---|
+| `GITHUB_TOKEN` | yes | `${{ secrets.GITHUB_TOKEN }}`. Used for every API call on the repository the workflow runs in. |
+| `PERSONAL_ACCESS_TOKEN` | only for remote storage | A token with write access to the repository named by `remote-organization-name` and `remote-repository-name`. |
 
-##### Demo for step 5
+## Development
 
-![allowlist](https://github.com/cla-assistant/github-action/blob/master/images/allowlist.gif?raw=true)
+```sh
+npm ci
+npm run build   # compiles src/ into dist/index.js, which is what the action runs
+```
 
-#### 6. Adding Personal Access Token as a Secret
-
-You have to create a [Repository Secret](https://docs.github.com/en/actions/security-guides/encrypted-secrets#creating-encrypted-secrets-for-a-repository) with the name `PERSONAL_ACCESS_TOKEN`.
-This PAT should have repo scope and is only required if you have configured to store the signatures in a remote repository/organization.
-
-##### Demo for step 6
-
-![personal-access-token](https://github.com/cla-assistant/github-action/blob/master/images/personal-access-token.gif?raw=true)
-
-### Environmental Variables:
-
-
-| Name                  | Requirement | Description |
-| --------------------- | ----------- | ----------- |
-| `GITHUB_TOKEN`        | _required_ | Usage: `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`,  CLA Action uses this in-built GitHub token to make the API calls for interacting with GitHub. It is built into Github Actions and does not need to be manually specified in your secrets store. [More Info](https://help.github.com/en/actions/configuring-and-managing-workflows/authenticating-with-the-github_token)|
-| `PERSONAL_ACCESS_TOKEN`        | _required_ | Usage: `PERSONAL_ACCESS_TOKEN : ${{ secrets.PERSONAL_ACCESS_TOKEN}}`, you have to create a [Personal Access Token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token) with `repo scope` and store in the repository's [secrets](https://docs.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets). |
-
-### Inputs Description:
-
-| Name                  | Requirement | Description | Example |
-| --------------------- | ----------- | ----------- | ------- |
-| `path-to-document`     | _required_ |  provide full URL `https://<clafile>` to the document which shall be signed by the contributor(s)  It can be any file e.g. inside the repository or it can be a gist. | https://github.com/cla-assistant/github-action/blob/master/SAPCLA.md |
-| `path-to-signatures`       | _optional_ |  Path to the JSON file where  all the signatures of the contributors will be stored inside the repository. | signatures/version1/cla.json |
-| `branch`   | _optional_ |  Branch in which all the signatures of the contributors will be stored and Default branch is `master`.  | master |
-| `allowlist`   | _optional_ | You can specify users and bots to be [added in allowlist](https://github.com/cla-assistant/github-action#5-users-and-bots-in-allowlist).  | user1,user2,bot* |
-| `remote-repository-name`   | _optional_ | provide the remote repository name where all the signatures should be stored . | remote repository name |
-| `remote-organization-name`   | _optional_ | provide the remote organization name where all the signatures should be stored. | remote organization name |
-| `create-file-commit-message`   | _optional_ |Commit message when a new CLA file is created. | Creating file for storing CLA Signatures. |
-| `signed-commit-message`   | _optional_ | Commit message when a new contributor signs the CLA in a Pull Request. |  $contributorName has signed the CLA in $pullRequestNo |
-| `custom-notsigned-prcomment`   | _optional_ | Introductory Pull Request comment to ask new contributors to sign. | Thank you for your contribution and please kindly read and sign our $pathToCLADocument |
-| `custom-pr-sign-comment`   | _optional_ | The signature to be committed in order to sign the CLA. | I have read the Developer Terms Document and I hereby accept the Terms |
-| `custom-allsigned-prcomment`   | _optional_ | pull request comment when everyone has signed | All Contributors have signed the CLA. |
-| `lock-pullrequest-aftermerge`   | _optional_ | Boolean input for locking the pull request after merging. Default is set to `true`.  It is highly recommended to lock the Pull Request after merging so that the Contributors won't be able to revoke their signature comments after merge | false |
-| `suggest-recheck`   | _optional_ | Boolean input for indicating if the action's comment should suggest that users comment `recheck`. Default is set to `true`. | false |
+Commit `dist/index.js` together with the source change that produced it.
 
 ## Contributors
+
+These people built the original action:
 
 <!-- readme: collaborators,contributors -start -->
 <table>
@@ -385,16 +369,4 @@ This PAT should have repo scope and is only required if you have configured to s
 
 ## License
 
-Contributor License Agreement assistant
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Licensed under the [Apache License, Version 2.0](LICENSE).

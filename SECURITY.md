@@ -1,18 +1,17 @@
-# Security Vulnerabilities
+# Security policy
 
-The CLA Assistant is built with security and data privacy in mind to ensure your data is safe.
+## Supported versions
 
-## Reporting
+Fixes land on `master`. Workflows should pin the action to a commit SHA and move to the commit that contains a fix.
 
-We are grateful for security researchers and users reporting a vulnerability to us, first. To ensure that your request is handled in a timely manner and non-disclosure of vulnerabilities can be assured, please follow the below guideline.
+## Reporting a vulnerability
 
-**Please do not report security vulnerabilities directly on GitHub. GitHub Issues can be publicly seen and therefore would result in a direct disclosure.**
+Report vulnerabilities privately through GitHub: open the repository's **Security** tab and choose **Report a vulnerability**. Do not open a public issue for a security problem.
 
-For reporting a vulnerability, please use the Vulnerability Report Form for Security Researchers on [SAP Trust Center](https://www.sap.com/about/trust-center/security/incident-management.html).
-Please address questions about data privacy, security concepts, and other media requests using the Vulnerability Report Form for Security Researchers on SAP Trust Center.
+A useful report includes the commit you tested, the workflow configuration, steps that reproduce the problem, and the impact you expect, for example a signature recorded for the wrong account or a way to pass the check without signing.
 
+You can expect a first reply within 7 days. Once a fix is ready, the advisory is published with the commit that contains it, and reporters are credited unless they ask not to be.
 
+## Scope
 
-## Disclosure Handling
-
-SAP is committed to timely review and respond to your request. The resolution of code defects will be handled by a dedicated group of security experts and prepared in a private GitHub repository. The project will inform the public about resolved security vulnerabilities via GitHub Security Advisories.
+The action runs on `pull_request_target` with a write token, so anything that lets a pull request or a comment run code, write outside the signature file, or record a signature for someone else is in scope. Problems in GitHub Actions itself should be reported to GitHub.
