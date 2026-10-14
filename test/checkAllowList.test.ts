@@ -31,7 +31,7 @@ describe('checkAllowList', () => {
   })
 
   it('treats * as a wildcard and escapes other regex characters', () => {
-    reset({ allowlist: 'bot*,a.b' })
+    reset({ allowlist: 'bot*,*a.b*' })
     const result = checkAllowList([
       committer('bot-one', 1),
       committer('axb', 2),
