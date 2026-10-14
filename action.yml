@@ -1,6 +1,6 @@
 name: "CLA assistant lite"
-description: "An action to handle the Contributor License Agreement (CLA) and Developer Certificate of Orgin (DCO)"
-author: "SAP"
+description: "An action to handle the Contributor License Agreement (CLA) and Developer Certificate of Origin (DCO)"
+author: "Wolfware LLC, based on the CLA Assistant action by SAP"
 branding:
   icon: "award"
   color: blue
@@ -19,11 +19,11 @@ inputs:
   remote-organization-name:
     description: "provide the remote organization name where all the signatures should be stored"
   path-to-document:
-    description: "Fully qualified web link to the document - example: https://github.com/cla-assistant/github-action/blob/master/SAPCLA.md"
+    description: "Fully qualified web link to the document - example: https://github.com/<owner>/<repo>/blob/main/CLA.md"
   signed-commit-message:
     description: "Commit message when a new contributor signs the CLA in a PR"
   signed-empty-commit-message:
-    description: "Commit message when a new contributor signs the CLA (empty)"
+    description: "Not used. Accepted so that existing workflows keep working."
   create-file-commit-message:
     description: "Commit message when a new file is created"
   custom-notsigned-prcomment:
