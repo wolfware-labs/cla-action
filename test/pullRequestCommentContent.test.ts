@@ -38,6 +38,17 @@ describe('commentContent', () => {
     expect(text).toContain('<br/>:x: @carol')
   })
 
+  it('escapes unlinked names and mentions only linked accounts', () => {
+    const crafted = { name: '@acme/everyone <b>[x](https://evil.example)</b>', id: '' as const, pullRequestNo: 7 }
+    const text = commentContent(false, map([committer('bob', 2)], [committer('carol', 3), crafted], [crafted]))
+    const escaped = '\\@acme/everyone \\<b\\>\\[x\\]\\(https\\://evil\\.example\\)\\</b\\>'
+    expect(text).toContain('<br/>:x: @carol')
+    expect(text).toContain(`<br/>:x: ${escaped}`)
+    expect(text).toContain(`**${escaped}** seems not to be a GitHub user.`)
+    expect(text).not.toMatch(/[^\\]@acme/)
+    expect(text).not.toContain('<b>')
+  })
+
   it('names authors who are not linked to a GitHub account', () => {
     const one = commentContent(false, map([], [committer('Dan', 0)], [committer('Dan', 0)]))
     expect(one).toContain('**Dan** seems not to be a GitHub user.')

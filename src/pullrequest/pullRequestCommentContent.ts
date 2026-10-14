@@ -1,4 +1,5 @@
 import { CommitterMap } from '../interfaces'
+import { escapeMarkdown } from '../shared/escape'
 import * as input from '../shared/getInputs'
 
 const DOCUMENT_NAME = { CLA: 'Contributor License Agreement', DCO: 'Developer Certificate of Origin' }
@@ -38,13 +39,14 @@ export function commentContent(signed: boolean, committerMap: CommitterMap): str
       text += `<br/>:white_check_mark: [${committer.name}](https://github.com/${committer.name})`
     }
     for (const committer of committerMap.notSigned) {
-      text += `<br/>:x: @${committer.name}`
+      // Only a linked account is mentioned; any other name comes from commit metadata.
+      text += committer.id ? `<br/>:x: @${committer.name}` : `<br/>:x: ${escapeMarkdown(committer.name)}`
     }
     text += '<br/>'
   }
 
   if (committerMap.unknown.length > 0) {
-    const names = committerMap.unknown.map(committer => committer.name).join(', ')
+    const names = committerMap.unknown.map(committer => escapeMarkdown(committer.name)).join(', ')
     const seem = committerMap.unknown.length > 1 ? 'seem' : 'seems'
     text += `**${names}** ${seem} not to be a GitHub user.`
     text += ` You need a GitHub account to be able to sign the ${kind}. If you have already a GitHub account, please [add the email address used for this commit to your account](${LINK_EMAIL_HELP}).<br/>`

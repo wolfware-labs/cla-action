@@ -80,7 +80,7 @@ To store signatures in another repository, set `remote-organization-name` and `r
 
 ### Allowlist
 
-Accounts on the allowlist never have to sign. Use it for maintainers and for bots that cannot sign, such as `dependabot[bot]`, and for `Copilot` if Copilot co-authors commits in your repository. Entries are comma separated and match the whole account name; `*` matches any characters, so `*[bot]` covers every bot account and `bot*` matches `bot-builder` but not `robotics`.
+Accounts on the allowlist never have to sign. Use it for maintainers and for bots that cannot sign, such as `dependabot[bot]`, and for `Copilot` if Copilot co-authors commits in your repository. Entries are comma separated and match the whole account name; `*` matches any characters, so `*[bot]` covers every bot account and `bot*` matches `bot-builder` but not `robotics`. Only GitHub accounts match: an author whose commit email is not linked to an account always has to sign, whatever name the commit gives.
 
 ### Making the check required
 

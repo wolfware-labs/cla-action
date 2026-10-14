@@ -37382,14 +37382,17 @@ function matcher(pattern) {
     const regex = new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`);
     return name => regex.test(name);
 }
-/** Removes authors on the allowlist. */
+/**
+ * Removes authors on the allowlist. Only linked accounts can match: the name
+ * of an unlinked author comes from commit metadata, which anyone can set.
+ */
 function checkAllowList(committers) {
     const matchers = getAllowList()
         .split(',')
         .map(entry => entry.trim())
         .filter(entry => entry !== '')
         .map(matcher);
-    return committers.filter(committer => committer && !matchers.some(matches => matches(committer.name)));
+    return committers.filter(committer => committer && !(committer.id && matchers.some(matches => matches(committer.name))));
 }
 
 ;// CONCATENATED MODULE: ./src/graphql.ts
@@ -37534,7 +37537,18 @@ async function updateFile(sha, claFileContent, fromComments) {
     });
 }
 
+;// CONCATENATED MODULE: ./src/shared/escape.ts
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+/** Escapes text for HTML, such as job summary cells. */
+const escapeHtml = (value) => value.replace(/[&<>"']/g, char => HTML_ESCAPES[char]);
+/**
+ * Escapes text for a GitHub Markdown comment: no markup, no links and no
+ * @-mentions. For names that come from commit metadata rather than an account.
+ */
+const escapeMarkdown = (value) => value.replace(/[\\`*_{}[\]()#+\-.!|~@<>&:]/g, '\\$&');
+
 ;// CONCATENATED MODULE: ./src/pullrequest/pullRequestCommentContent.ts
+
 
 const DOCUMENT_NAME = { CLA: 'Contributor License Agreement', DCO: 'Developer Certificate of Origin' };
 const LINK_EMAIL_HELP = 'https://docs.github.com/en/pull-requests/committing-changes-to-your-project/troubleshooting-commits/why-are-my-commits-linked-to-the-wrong-user';
@@ -37564,12 +37578,13 @@ function commentContent(signed, committerMap) {
             text += `<br/>:white_check_mark: [${committer.name}](https://github.com/${committer.name})`;
         }
         for (const committer of committerMap.notSigned) {
-            text += `<br/>:x: @${committer.name}`;
+            // Only a linked account is mentioned; any other name comes from commit metadata.
+            text += committer.id ? `<br/>:x: @${committer.name}` : `<br/>:x: ${escapeMarkdown(committer.name)}`;
         }
         text += '<br/>';
     }
     if (committerMap.unknown.length > 0) {
-        const names = committerMap.unknown.map(committer => committer.name).join(', ');
+        const names = committerMap.unknown.map(committer => escapeMarkdown(committer.name)).join(', ');
         const seem = committerMap.unknown.length > 1 ? 'seem' : 'seems';
         text += `**${names}** ${seem} not to be a GitHub user.`;
         text += ` You need a GitHub account to be able to sign the ${kind}. If you have already a GitHub account, please [add the email address used for this commit to your account](${LINK_EMAIL_HELP}).<br/>`;
@@ -37766,6 +37781,7 @@ async function getSelfWorkflowId() {
 
 
 
+
 /** Attempts to commit new signatures when another run changes the file in between. */
 const WRITE_ATTEMPTS = 3;
 /** Checks that every author has signed, records new signatures and sets the check result. */
@@ -37830,8 +37846,6 @@ async function confirmSignatures(signatures) {
         }
     }
 }
-const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escapeHtml = (value) => value.replace(/[&<>"']/g, char => HTML_ESCAPES[char]);
 /** Sets the step outputs and writes the job summary. */
 async function report(committerMap, allSigned) {
     const missing = committerMap.notSigned.map(committer => committer.name);

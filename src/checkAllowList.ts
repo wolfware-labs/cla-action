@@ -12,12 +12,15 @@ function matcher(pattern: string): (name: string) => boolean {
   return name => regex.test(name)
 }
 
-/** Removes authors on the allowlist. */
+/**
+ * Removes authors on the allowlist. Only linked accounts can match: the name
+ * of an unlinked author comes from commit metadata, which anyone can set.
+ */
 export function checkAllowList(committers: Committer[]): Committer[] {
   const matchers = getAllowList()
     .split(',')
     .map(entry => entry.trim())
     .filter(entry => entry !== '')
     .map(matcher)
-  return committers.filter(committer => committer && !matchers.some(matches => matches(committer.name)))
+  return committers.filter(committer => committer && !(committer.id && matchers.some(matches => matches(committer.name))))
 }

@@ -7,6 +7,7 @@ import { octokit } from './octokit'
 import { createFile, getFileContent, updateFile } from './persistence/persistence'
 import prCommentSetup from './pullrequest/pullRequestComment'
 import { reRunLastWorkFlowIfRequired } from './pullRerunRunner'
+import { escapeHtml } from './shared/escape'
 import { documentKind } from './shared/getInputs'
 
 /** Attempts to commit new signatures when another run changes the file in between. */
@@ -76,9 +77,6 @@ async function confirmSignatures(signatures: Signature[]): Promise<void> {
     }
   }
 }
-
-const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
-const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, char => HTML_ESCAPES[char])
 
 /** Sets the step outputs and writes the job summary. */
 async function report(committerMap: CommitterMap, allSigned: boolean): Promise<void> {
