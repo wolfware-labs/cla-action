@@ -24,6 +24,8 @@ jobs:
       - run: npm run test:coverage
 
   build:
+    # Build and check dist/ only after the tests pass.
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
