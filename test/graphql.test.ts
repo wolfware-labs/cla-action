@@ -86,6 +86,31 @@ describe('getCommitters', () => {
     ])
   })
 
+  it('tells contributors apart by account id or commit email, not by name', async () => {
+    octokit.graphql.mockResolvedValue(
+      commits(
+        {
+          author: { name: 'Sam', email: 's1@x', user: null },
+          authors: {
+            nodes: [
+              { name: 'Sam', email: 's1@x', user: null },
+              { name: 'Sam', email: 's2@x', user: null },
+              { name: 'alice', email: 'other@x', user: null }
+            ]
+          }
+        },
+        { author: { name: 'Alice', email: 'a@x', user: user('alice', 1) } },
+        { author: { name: 'Sam', email: 'S1@X', user: null } }
+      )
+    )
+    expect(await getCommitters()).toEqual([
+      { name: 'Sam', id: '', pullRequestNo: 7 },
+      { name: 'Sam', id: '', pullRequestNo: 7 },
+      { name: 'alice', id: '', pullRequestNo: 7 },
+      { name: 'alice', id: 1, pullRequestNo: 7 }
+    ])
+  })
+
   it('fails instead of skipping co-authors past the first 100', async () => {
     const nodes = Array.from({ length: 100 }, (_, i) => ({ name: `Co ${i}`, email: `c${i}@x`, user: user(`co${i}`, 100 + i) }))
     octokit.graphql.mockResolvedValue(

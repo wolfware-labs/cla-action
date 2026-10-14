@@ -151,6 +151,14 @@ describe('setupClaCheck', () => {
     expect(summary.write).toHaveBeenCalled()
   })
 
+  it('escapes names in the job summary but not in the outputs', async () => {
+    authors(['<img src=x onerror=alert(1)>', 0])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([]))
+    await setupClaCheck()
+    expect(core.setOutput).toHaveBeenCalledWith('missing', '<img src=x onerror=alert(1)>')
+    expect(summary.addTable.mock.calls[0][0][1][0]).toBe('&lt;img src=x onerror=alert(1)&gt;')
+  })
+
   it('reports all signed in the outputs', async () => {
     authors(['alice', 1])
     octokit.rest.repos.getContent.mockResolvedValue(signatureFile([{ name: 'alice', id: 1 }]))
@@ -222,5 +230,18 @@ describe('setupClaCheck', () => {
     authors(['alice', 1])
     octokit.rest.repos.getContent.mockRejectedValue(httpError(500))
     await expect(setupClaCheck()).rejects.toThrow('Could not retrieve repository contents. Status: 500')
+  })
+
+  it('reports a signature file that is not valid JSON', async () => {
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockResolvedValue({ data: { sha: 's', content: Buffer.from('{oops').toString('base64') } })
+    await expect(setupClaCheck()).rejects.toThrow('The signature file is not valid JSON:')
+  })
+
+  it('stops when the file another run created has disappeared', async () => {
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockRejectedValue(httpError(404))
+    octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(httpError(422))
+    await expect(setupClaCheck()).rejects.toThrow('another run created it, but it cannot be found')
   })
 })

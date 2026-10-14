@@ -77,6 +77,9 @@ async function confirmSignatures(signatures: Signature[]): Promise<void> {
   }
 }
 
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, char => HTML_ESCAPES[char])
+
 /** Sets the step outputs and writes the job summary. */
 async function report(committerMap: CommitterMap, allSigned: boolean): Promise<void> {
   const missing = committerMap.notSigned.map(committer => committer.name)
@@ -86,9 +89,13 @@ async function report(committerMap: CommitterMap, allSigned: boolean): Promise<v
   core.setOutput('unlinked', unlinked.join(','))
 
   const kind = documentKind()
+  // Names of unlinked authors come from commit metadata, and summary cells are HTML.
   const rows = [
-    ...committerMap.signed.map(committer => [committer.name, 'signed']),
-    ...committerMap.notSigned.map(committer => [committer.name, committer.id ? 'not signed' : 'not signed, commit email not linked to an account'])
+    ...committerMap.signed.map(committer => [escapeHtml(committer.name), 'signed']),
+    ...committerMap.notSigned.map(committer => [
+      escapeHtml(committer.name),
+      committer.id ? 'not signed' : 'not signed, commit email not linked to an account'
+    ])
   ]
   try {
     await core.summary
@@ -104,19 +111,25 @@ async function report(committerMap: CommitterMap, allSigned: boolean): Promise<v
 
 /** Reads the signature file, creating an empty one on the first run. */
 async function readOrCreateSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
+  return (await readSignatureFile()) ?? createSignatureFile()
+}
+
+/** The signature file and its sha, or undefined when it does not exist yet. */
+async function readSignatureFile(): Promise<{ content: SignatureFile; sha: string } | undefined> {
+  let data: { sha: string; content: string }
   try {
-    return await readSignatureFile()
+    data = (await getFileContent()).data as { sha: string; content: string }
   } catch (error: any) {
     if (Number(error.status) === 404) {
-      return createSignatureFile()
+      return undefined
     }
     throw new Error(`Could not retrieve repository contents. Status: ${error.status || 'unknown'}`)
   }
-}
-
-async function readSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
-  const data = (await getFileContent()).data as { sha: string; content: string }
-  return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha }
+  try {
+    return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha }
+  } catch (error) {
+    throw new Error(`The signature file is not valid JSON: ${(error as Error).message}`)
+  }
 }
 
 async function createSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
@@ -126,19 +139,19 @@ async function createSignatureFile(): Promise<{ content: SignatureFile; sha: str
     core.info('Created the signature file')
     return { content, sha: created.data.content?.sha as string }
   } catch (error: any) {
-    if ([409, 422].includes(Number(error.status))) {
-      // Another run created the file first: use that one.
-      core.info('Another run created the signature file first; reading it')
-      try {
-        return await readSignatureFile()
-      } catch (readError: any) {
-        throw new Error(`Could not retrieve repository contents. Status: ${readError.status || 'unknown'}`)
-      }
+    if (![409, 422].includes(Number(error.status))) {
+      throw new Error(
+        `Error occurred when creating the signed contributors file: ${(error as Error).message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`
+      )
     }
-    throw new Error(
-      `Error occurred when creating the signed contributors file: ${(error as Error).message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`
-    )
   }
+  // Another run created the file first: use that one.
+  core.info('Another run created the signature file first; reading it')
+  const existing = await readSignatureFile()
+  if (!existing) {
+    throw new Error('Could not create the signature file: another run created it, but it cannot be found')
+  }
+  return existing
 }
 
 function groupCommitters(committers: Committer[], content: SignatureFile): CommitterMap {

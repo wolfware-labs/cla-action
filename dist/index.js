@@ -37419,7 +37419,9 @@ const QUERY = `
       }
     }
   }`;
-const account = (actor) => actor.user ? { name: actor.user.login, id: actor.user.databaseId } : { name: actor.name || '', id: '' };
+const linked = (user) => ({ name: user.login, id: user.databaseId, key: `id:${user.databaseId}` });
+const unlinked = (name, email) => ({ name, id: '', key: `email:${(email || name).toLowerCase()}` });
+const account = (actor) => (actor.user ? linked(actor.user) : unlinked(actor.name || '', actor.email));
 /**
  * Everyone who wrote a commit: the author and the co-authors named in
  * Co-authored-by trailers, which GitHub lists under `authors`. A commit
@@ -37435,13 +37437,14 @@ function accountsOf(commit) {
     }
     const user = commit.author.user || commit.committer.user;
     if (user) {
-        return [{ name: user.login, id: user.databaseId }];
+        return [linked(user)];
     }
-    return [{ name: commit.author.name || commit.committer.name || '', id: '' }];
+    return [unlinked(commit.author.name || commit.committer.name || '', commit.author.email)];
 }
 /** The distinct authors and co-authors of all of the pull request's commits, read 100 at a time. */
 async function getCommitters() {
     const committers = [];
+    const seen = new Set();
     let cursor = '';
     for (;;) {
         let commits;
@@ -37458,10 +37461,11 @@ async function getCommitters() {
             throw new Error(`graphql call to get the committers details failed: ${error}`);
         }
         for (const edge of commits.edges) {
-            for (const { name, id } of accountsOf(edge.node.commit)) {
-                if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
+            for (const { name, id, key } of accountsOf(edge.node.commit)) {
+                if (id === GITHUB_ACTIONS_BOT_ID || seen.has(key)) {
                     continue;
                 }
+                seen.add(key);
                 committers.push({ name, id, pullRequestNo: github_context.issue.number });
             }
         }
@@ -37826,6 +37830,8 @@ async function confirmSignatures(signatures) {
         }
     }
 }
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const escapeHtml = (value) => value.replace(/[&<>"']/g, char => HTML_ESCAPES[char]);
 /** Sets the step outputs and writes the job summary. */
 async function report(committerMap, allSigned) {
     const missing = committerMap.notSigned.map(committer => committer.name);
@@ -37834,9 +37840,13 @@ async function report(committerMap, allSigned) {
     setOutput('missing', missing.join(','));
     setOutput('unlinked', unlinked.join(','));
     const kind = documentKind();
+    // Names of unlinked authors come from commit metadata, and summary cells are HTML.
     const rows = [
-        ...committerMap.signed.map(committer => [committer.name, 'signed']),
-        ...committerMap.notSigned.map(committer => [committer.name, committer.id ? 'not signed' : 'not signed, commit email not linked to an account'])
+        ...committerMap.signed.map(committer => [escapeHtml(committer.name), 'signed']),
+        ...committerMap.notSigned.map(committer => [
+            escapeHtml(committer.name),
+            committer.id ? 'not signed' : 'not signed, commit email not linked to an account'
+        ])
     ];
     try {
         await summary
@@ -37852,19 +37862,26 @@ async function report(committerMap, allSigned) {
 }
 /** Reads the signature file, creating an empty one on the first run. */
 async function readOrCreateSignatureFile() {
+    return (await readSignatureFile()) ?? createSignatureFile();
+}
+/** The signature file and its sha, or undefined when it does not exist yet. */
+async function readSignatureFile() {
+    let data;
     try {
-        return await readSignatureFile();
+        data = (await getFileContent()).data;
     }
     catch (error) {
         if (Number(error.status) === 404) {
-            return createSignatureFile();
+            return undefined;
         }
         throw new Error(`Could not retrieve repository contents. Status: ${error.status || 'unknown'}`);
     }
-}
-async function readSignatureFile() {
-    const data = (await getFileContent()).data;
-    return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha };
+    try {
+        return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha };
+    }
+    catch (error) {
+        throw new Error(`The signature file is not valid JSON: ${error.message}`);
+    }
 }
 async function createSignatureFile() {
     const content = { signedContributors: [] };
@@ -37874,18 +37891,17 @@ async function createSignatureFile() {
         return { content, sha: created.data.content?.sha };
     }
     catch (error) {
-        if ([409, 422].includes(Number(error.status))) {
-            // Another run created the file first: use that one.
-            info('Another run created the signature file first; reading it');
-            try {
-                return await readSignatureFile();
-            }
-            catch (readError) {
-                throw new Error(`Could not retrieve repository contents. Status: ${readError.status || 'unknown'}`);
-            }
+        if (![409, 422].includes(Number(error.status))) {
+            throw new Error(`Error occurred when creating the signed contributors file: ${error.message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`);
         }
-        throw new Error(`Error occurred when creating the signed contributors file: ${error.message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`);
     }
+    // Another run created the file first: use that one.
+    info('Another run created the signature file first; reading it');
+    const existing = await readSignatureFile();
+    if (!existing) {
+        throw new Error('Could not create the signature file: another run created it, but it cannot be found');
+    }
+    return existing;
 }
 function groupCommitters(committers, content) {
     const hasSigned = (committer) => content.signedContributors.some(signature => signature.id === committer.id);

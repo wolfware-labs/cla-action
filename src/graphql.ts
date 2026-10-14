@@ -30,6 +30,7 @@ const QUERY = `
 
 interface GitActor {
   name?: string
+  email?: string
   user?: { databaseId: number; login: string } | null
 }
 
@@ -40,8 +41,18 @@ interface Commit {
   authors?: { totalCount?: number; nodes: GitActor[] }
 }
 
-const account = (actor: GitActor): { name: string; id: number | '' } =>
-  actor.user ? { name: actor.user.login, id: actor.user.databaseId } : { name: actor.name || '', id: '' }
+/** A contributor, with the key that tells contributors apart: the account id, or the commit email when unlinked. */
+interface Account {
+  name: string
+  id: number | ''
+  key: string
+}
+
+const linked = (user: { databaseId: number; login: string }): Account => ({ name: user.login, id: user.databaseId, key: `id:${user.databaseId}` })
+
+const unlinked = (name: string, email?: string): Account => ({ name, id: '', key: `email:${(email || name).toLowerCase()}` })
+
+const account = (actor: GitActor): Account => (actor.user ? linked(actor.user) : unlinked(actor.name || '', actor.email))
 
 /**
  * Everyone who wrote a commit: the author and the co-authors named in
@@ -49,7 +60,7 @@ const account = (actor: GitActor): { name: string; id: number | '' } =>
  * without that list falls back to its author, then its committer. A commit
  * with more authors than one page holds fails the check, so nobody is skipped.
  */
-function accountsOf(commit: Commit): { name: string; id: number | '' }[] {
+function accountsOf(commit: Commit): Account[] {
   if (commit.authors && (commit.authors.totalCount ?? 0) > commit.authors.nodes.length) {
     throw new Error(`commit ${commit.oid} has ${commit.authors.totalCount} authors; at most ${commit.authors.nodes.length} can be checked`)
   }
@@ -58,14 +69,15 @@ function accountsOf(commit: Commit): { name: string; id: number | '' }[] {
   }
   const user = commit.author.user || commit.committer.user
   if (user) {
-    return [{ name: user.login, id: user.databaseId }]
+    return [linked(user)]
   }
-  return [{ name: commit.author.name || commit.committer.name || '', id: '' }]
+  return [unlinked(commit.author.name || commit.committer.name || '', commit.author.email)]
 }
 
 /** The distinct authors and co-authors of all of the pull request's commits, read 100 at a time. */
 export default async function getCommitters(): Promise<Committer[]> {
   const committers: Committer[] = []
+  const seen = new Set<string>()
   let cursor = ''
   for (;;) {
     let commits: any
@@ -82,10 +94,11 @@ export default async function getCommitters(): Promise<Committer[]> {
     }
 
     for (const edge of commits.edges) {
-      for (const { name, id } of accountsOf(edge.node.commit)) {
-        if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
+      for (const { name, id, key } of accountsOf(edge.node.commit)) {
+        if (id === GITHUB_ACTIONS_BOT_ID || seen.has(key)) {
           continue
         }
+        seen.add(key)
         committers.push({ name, id, pullRequestNo: context.issue.number })
       }
     }
