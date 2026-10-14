@@ -29511,16 +29511,16 @@ function file_command_issueFileCommand(command, message) {
     if (!filePath) {
         throw new Error(`Unable to find environment variable for file command ${command}`);
     }
-    if (!fs.existsSync(filePath)) {
+    if (!external_fs_namespaceObject.existsSync(filePath)) {
         throw new Error(`Missing file at path: ${filePath}`);
     }
-    fs.appendFileSync(filePath, `${toCommandValue(message)}${os.EOL}`, {
+    external_fs_namespaceObject.appendFileSync(filePath, `${utils_toCommandValue(message)}${external_os_namespaceObject.EOL}`, {
         encoding: 'utf8'
     });
 }
 function file_command_prepareKeyValueMessage(key, value) {
-    const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
-    const convertedValue = toCommandValue(value);
+    const delimiter = `ghadelimiter_${external_crypto_namespaceObject.randomUUID()}`;
+    const convertedValue = utils_toCommandValue(value);
     // These should realistically never happen, but just in case someone finds a
     // way to exploit uuid generation let's not allow keys or values that contain
     // the delimiter.
@@ -29530,7 +29530,7 @@ function file_command_prepareKeyValueMessage(key, value) {
     if (convertedValue.includes(delimiter)) {
         throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
     }
-    return `${key}<<${delimiter}${os.EOL}${convertedValue}${os.EOL}${delimiter}`;
+    return `${key}<<${delimiter}${external_os_namespaceObject.EOL}${convertedValue}${external_os_namespaceObject.EOL}${delimiter}`;
 }
 //# sourceMappingURL=file-command.js.map
 ;// CONCATENATED MODULE: external "path"
@@ -30760,7 +30760,7 @@ const _summary = new Summary();
  * @deprecated use `core.summary`
  */
 const markdownSummary = (/* unused pure expression or super */ null && (_summary));
-const summary = (/* unused pure expression or super */ null && (_summary));
+const summary = _summary;
 //# sourceMappingURL=summary.js.map
 ;// CONCATENATED MODULE: ./node_modules/@actions/core/lib/path-utils.js
 
@@ -32152,10 +32152,10 @@ function getBooleanInput(name, options) {
 function setOutput(name, value) {
     const filePath = process.env['GITHUB_OUTPUT'] || '';
     if (filePath) {
-        return issueFileCommand('OUTPUT', prepareKeyValueMessage(name, value));
+        return file_command_issueFileCommand('OUTPUT', file_command_prepareKeyValueMessage(name, value));
     }
-    process.stdout.write(os.EOL);
-    issueCommand('set-output', { name }, toCommandValue(value));
+    process.stdout.write(external_os_namespaceObject.EOL);
+    command_issueCommand('set-output', { name }, utils_toCommandValue(value));
 }
 /**
  * Enables or disables the echoing of commands into stdout for the rest of the step.
@@ -37408,6 +37408,7 @@ const QUERY = `
               commit {
                 author { email name user { id databaseId login } }
                 committer { name user { id databaseId login } }
+                authors(first: 20) { nodes { email name user { id databaseId login } } }
               }
             }
             cursor
@@ -37417,15 +37418,23 @@ const QUERY = `
       }
     }
   }`;
-/** The GitHub account of a commit, falling back to the author name for unlinked emails. */
-function accountOf(commit) {
+const account = (actor) => actor.user ? { name: actor.user.login, id: actor.user.databaseId } : { name: actor.name || '', id: '' };
+/**
+ * Everyone who wrote a commit: the author and the co-authors named in
+ * Co-authored-by trailers, which GitHub lists under `authors`. A commit
+ * without that list falls back to its author, then its committer.
+ */
+function accountsOf(commit) {
+    if (commit.authors?.nodes.length) {
+        return commit.authors.nodes.map(account);
+    }
     const user = commit.author.user || commit.committer.user;
     if (user) {
-        return { name: user.login, id: user.databaseId };
+        return [{ name: user.login, id: user.databaseId }];
     }
-    return { name: commit.author.name || commit.committer.name || '', id: '' };
+    return [{ name: commit.author.name || commit.committer.name || '', id: '' }];
 }
-/** The distinct authors of all of the pull request's commits, read 100 at a time. */
+/** The distinct authors and co-authors of all of the pull request's commits, read 100 at a time. */
 async function getCommitters() {
     const committers = [];
     let cursor = '';
@@ -37444,11 +37453,12 @@ async function getCommitters() {
             throw new Error(`graphql call to get the committers details failed: ${error}`);
         }
         for (const edge of commits.edges) {
-            const { name, id } = accountOf(edge.node.commit);
-            if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
-                continue;
+            for (const { name, id } of accountsOf(edge.node.commit)) {
+                if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
+                    continue;
+                }
+                committers.push({ name, id, pullRequestNo: github_context.issue.number });
             }
-            committers.push({ name, id, pullRequestNo: github_context.issue.number });
         }
         if (!commits.pageInfo.hasNextPage) {
             return committers;
@@ -37746,6 +37756,9 @@ async function getSelfWorkflowId() {
 
 
 
+
+/** Attempts to commit new signatures when another run changes the file in between. */
+const WRITE_ATTEMPTS = 3;
 /** Checks that every author has signed, records new signatures and sets the check result. */
 async function setupClaCheck() {
     const committers = checkAllowList(await getCommitters());
@@ -37753,19 +37766,83 @@ async function setupClaCheck() {
     const committerMap = groupCommitters(committers, content);
     const fromComments = await prCommentSetup(committerMap, committers);
     if (fromComments?.newSigned.length) {
-        try {
-            await updateFile(sha, content, fromComments);
-        }
-        catch (error) {
-            throw new Error(`Could not update the signature file: ${error.message}`);
-        }
+        await recordSignatures(content, sha, fromComments.newSigned);
+        await confirmSignatures(fromComments.newSigned);
     }
-    if (fromComments?.allSignedFlag || committerMap.notSigned.length === 0) {
+    const allSigned = Boolean(fromComments?.allSignedFlag) || committerMap.notSigned.length === 0;
+    await report(committerMap, allSigned);
+    if (allSigned) {
         info(`All contributors have signed the ${documentKind()} 📝 ✅ `);
         await reRunLastWorkFlowIfRequired();
     }
     else {
         setFailed(`Committers of Pull Request number ${github_context.issue.number} have to sign the ${documentKind()} 📝`);
+    }
+}
+/**
+ * Commits new signatures. When another run changed the file since it was
+ * read (409 or 422), reads it again and commits the signatures still missing.
+ */
+async function recordSignatures(content, sha, newSigned) {
+    let missing = newSigned;
+    for (let attempt = 1;; attempt++) {
+        try {
+            await updateFile(sha, content, { newSigned: missing, onlyCommitters: [], allSignedFlag: false });
+            return;
+        }
+        catch (error) {
+            const conflict = [409, 422].includes(Number(error.status));
+            if (!conflict || attempt === WRITE_ATTEMPTS) {
+                throw new Error(`Could not update the signature file: ${error.message}`);
+            }
+            info(`The signature file changed while it was being updated; reading it again (attempt ${attempt + 1} of ${WRITE_ATTEMPTS})`);
+            ({ content, sha } = await readOrCreateSignatureFile());
+            const stored = new Set(content.signedContributors.map(signature => signature.id));
+            missing = missing.filter(signature => !stored.has(signature.id));
+            if (missing.length === 0) {
+                return;
+            }
+        }
+    }
+}
+/** Reacts to each recorded signing comment, so its author can see it counted. */
+async function confirmSignatures(signatures) {
+    for (const signature of signatures) {
+        try {
+            await octokit.rest.reactions.createForIssueComment({
+                owner: github_context.repo.owner,
+                repo: github_context.repo.repo,
+                comment_id: signature.comment_id,
+                content: '+1'
+            });
+        }
+        catch (error) {
+            warning(`Could not react to the signature of ${signature.name}: ${error.message}`);
+        }
+    }
+}
+/** Sets the step outputs and writes the job summary. */
+async function report(committerMap, allSigned) {
+    const missing = committerMap.notSigned.map(committer => committer.name);
+    const unlinked = committerMap.unknown.map(committer => committer.name);
+    setOutput('all-signed', String(allSigned));
+    setOutput('missing', missing.join(','));
+    setOutput('unlinked', unlinked.join(','));
+    const kind = documentKind();
+    const rows = [
+        ...committerMap.signed.map(committer => [committer.name, 'signed']),
+        ...committerMap.notSigned.map(committer => [committer.name, committer.id ? 'not signed' : 'not signed, commit email not linked to an account'])
+    ];
+    try {
+        await summary
+            .addHeading(`${kind} signatures for pull request #${github_context.issue.number}`, 3)
+            .addRaw(allSigned ? `All contributors have signed the ${kind}.` : `${missing.length} of ${rows.length} contributors still have to sign the ${kind}.`, true)
+            .addTable([[{ data: 'Contributor', header: true }, { data: 'Status', header: true }], ...rows])
+            .write();
+    }
+    catch (error) {
+        // Outside GitHub Actions there is no summary file.
+        core_debug(`Could not write the job summary: ${error.message}`);
     }
 }
 /** Reads the signature file, creating an empty one on the first run. */
@@ -37817,6 +37894,10 @@ async function run() {
             if (github_context.payload.pull_request?.merged && lockPullRequestAfterMerge()) {
                 await lockPullRequest();
             }
+            return;
+        }
+        if (getPathToDocument() === '') {
+            setFailed('The path-to-document input is required: set it to the URL of the document contributors sign.');
             return;
         }
         await setupClaCheck();

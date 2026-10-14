@@ -16,6 +16,7 @@ const QUERY = `
               commit {
                 author { email name user { id databaseId login } }
                 committer { name user { id databaseId login } }
+                authors(first: 20) { nodes { email name user { id databaseId login } } }
               }
             }
             cursor
@@ -31,16 +32,32 @@ interface GitActor {
   user?: { databaseId: number; login: string } | null
 }
 
-/** The GitHub account of a commit, falling back to the author name for unlinked emails. */
-function accountOf(commit: { author: GitActor; committer: GitActor }): { name: string; id: number | '' } {
-  const user = commit.author.user || commit.committer.user
-  if (user) {
-    return { name: user.login, id: user.databaseId }
-  }
-  return { name: commit.author.name || commit.committer.name || '', id: '' }
+interface Commit {
+  author: GitActor
+  committer: GitActor
+  authors?: { nodes: GitActor[] }
 }
 
-/** The distinct authors of all of the pull request's commits, read 100 at a time. */
+const account = (actor: GitActor): { name: string; id: number | '' } =>
+  actor.user ? { name: actor.user.login, id: actor.user.databaseId } : { name: actor.name || '', id: '' }
+
+/**
+ * Everyone who wrote a commit: the author and the co-authors named in
+ * Co-authored-by trailers, which GitHub lists under `authors`. A commit
+ * without that list falls back to its author, then its committer.
+ */
+function accountsOf(commit: Commit): { name: string; id: number | '' }[] {
+  if (commit.authors?.nodes.length) {
+    return commit.authors.nodes.map(account)
+  }
+  const user = commit.author.user || commit.committer.user
+  if (user) {
+    return [{ name: user.login, id: user.databaseId }]
+  }
+  return [{ name: commit.author.name || commit.committer.name || '', id: '' }]
+}
+
+/** The distinct authors and co-authors of all of the pull request's commits, read 100 at a time. */
 export default async function getCommitters(): Promise<Committer[]> {
   const committers: Committer[] = []
   let cursor = ''
@@ -59,11 +76,12 @@ export default async function getCommitters(): Promise<Committer[]> {
     }
 
     for (const edge of commits.edges) {
-      const { name, id } = accountOf(edge.node.commit)
-      if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
-        continue
+      for (const { name, id } of accountsOf(edge.node.commit)) {
+        if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
+          continue
+        }
+        committers.push({ name, id, pullRequestNo: context.issue.number })
       }
-      committers.push({ name, id, pullRequestNo: context.issue.number })
     }
 
     if (!commits.pageInfo.hasNextPage) {

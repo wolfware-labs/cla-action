@@ -33,6 +33,7 @@ export const octokit = {
       getContent: vi.fn(),
       createOrUpdateFileContents: vi.fn()
     },
+    reactions: { createForIssueComment: vi.fn() },
     actions: {
       listRepoWorkflows: vi.fn(),
       listWorkflowRuns: vi.fn(),
@@ -42,8 +43,17 @@ export const octokit = {
   }
 }
 
+// A chainable stand-in for core.summary.
+export const summary: any = {}
+for (const method of ['addHeading', 'addRaw', 'addTable', 'addList']) {
+  summary[method] = vi.fn(() => summary)
+}
+summary.write = vi.fn()
+
 export const core = {
   getInput: vi.fn((name: string) => inputs[name] ?? ''),
+  setOutput: vi.fn(),
+  summary,
   setFailed: vi.fn(),
   info: vi.fn(),
   debug: vi.fn(),
@@ -125,4 +135,7 @@ export function reset(overrides: Record<string, string> = {}) {
   octokit.rest.issues.lock.mockResolvedValue({ data: {} })
   octokit.rest.repos.createOrUpdateFileContents.mockResolvedValue({ data: { content: { sha: 'created-sha' } } })
   octokit.rest.actions.reRunWorkflow.mockResolvedValue({ data: {} })
+  octokit.rest.reactions.createForIssueComment.mockResolvedValue({ data: {} })
+  for (const method of ['addHeading', 'addRaw', 'addTable', 'addList']) summary[method].mockImplementation(() => summary)
+  summary.write.mockResolvedValue(summary)
 }

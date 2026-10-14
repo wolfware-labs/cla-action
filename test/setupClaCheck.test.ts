@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { core, httpError, octokit, prComment, reset, signatureFile } from './harness'
+import { core, httpError, octokit, prComment, reset, signatureFile, summary } from './harness'
 
 vi.mock('@actions/core', async () => (await import('./harness')).core)
 vi.mock('@actions/github', async () => (await import('./harness')).github)
@@ -80,6 +80,91 @@ describe('setupClaCheck', () => {
     expect(JSON.parse(Buffer.from(write.content, 'base64').toString()).signedContributors.map((s: { name: string }) => s.name)).toEqual(['bob'])
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(reRunLastWorkFlowIfRequired).toHaveBeenCalled()
+  })
+
+  it('confirms each recorded signature with a reaction', async () => {
+    authors(['bob', 2])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([]))
+    octokit.rest.issues.listComments.mockResolvedValue({ data: [botComment, prComment('bob', 2, CLA)] })
+    await setupClaCheck()
+    expect(octokit.rest.reactions.createForIssueComment).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets', comment_id: 20, content: '+1' })
+  })
+
+  it('warns instead of failing when the reaction cannot be added', async () => {
+    authors(['bob', 2])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([]))
+    octokit.rest.issues.listComments.mockResolvedValue({ data: [botComment, prComment('bob', 2, CLA)] })
+    octokit.rest.reactions.createForIssueComment.mockRejectedValue(new Error('403'))
+    await setupClaCheck()
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Could not react to the signature of bob'))
+    expect(core.setFailed).not.toHaveBeenCalled()
+  })
+
+  describe('when another run changes the signature file first', () => {
+    beforeEach(() => {
+      authors(['bob', 2])
+      octokit.rest.issues.listComments.mockResolvedValue({ data: [botComment, prComment('bob', 2, CLA)] })
+    })
+
+    it('reads the file again and writes against the new sha', async () => {
+      octokit.rest.repos.getContent
+        .mockResolvedValueOnce(signatureFile([], 'sha-1'))
+        .mockResolvedValueOnce(signatureFile([{ name: 'carol', id: 3 }], 'sha-2'))
+      octokit.rest.repos.createOrUpdateFileContents.mockRejectedValueOnce(httpError(409)).mockResolvedValueOnce({ data: {} })
+      await setupClaCheck()
+      const second = octokit.rest.repos.createOrUpdateFileContents.mock.calls[1][0]
+      expect(second.sha).toBe('sha-2')
+      const names = JSON.parse(Buffer.from(second.content, 'base64').toString()).signedContributors.map((s: { name: string }) => s.name)
+      expect(names).toEqual(['carol', 'bob'])
+      expect(core.setFailed).not.toHaveBeenCalled()
+    })
+
+    it('stops when the other run already stored the signature', async () => {
+      octokit.rest.repos.getContent
+        .mockResolvedValueOnce(signatureFile([], 'sha-1'))
+        .mockResolvedValueOnce(signatureFile([{ name: 'bob', id: 2 }], 'sha-2'))
+      octokit.rest.repos.createOrUpdateFileContents.mockRejectedValueOnce(httpError(422))
+      await setupClaCheck()
+      expect(octokit.rest.repos.createOrUpdateFileContents).toHaveBeenCalledTimes(1)
+      expect(core.setFailed).not.toHaveBeenCalled()
+    })
+
+    it('gives up after three conflicts', async () => {
+      octokit.rest.repos.getContent.mockResolvedValue(signatureFile([], 'sha-1'))
+      octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(httpError(409, 'conflict'))
+      await expect(setupClaCheck()).rejects.toThrow('Could not update the signature file: conflict')
+      expect(octokit.rest.repos.createOrUpdateFileContents).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  it('sets outputs and writes a job summary', async () => {
+    // Dan's commit email is not linked to an account, so he has no id.
+    authors(['alice', 1], ['bob', 2], ['Dan', 0])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([{ name: 'alice', id: 1 }]))
+    await setupClaCheck()
+    expect(core.setOutput).toHaveBeenCalledWith('all-signed', 'false')
+    expect(core.setOutput).toHaveBeenCalledWith('missing', 'bob,Dan')
+    expect(core.setOutput).toHaveBeenCalledWith('unlinked', 'Dan')
+    expect(summary.addRaw).toHaveBeenCalledWith('2 of 3 contributors still have to sign the CLA.', true)
+    const rows = summary.addTable.mock.calls[0][0]
+    expect(rows.slice(1)).toEqual([['alice', 'signed'], ['bob', 'not signed'], ['Dan', 'not signed, commit email not linked to an account']])
+    expect(summary.write).toHaveBeenCalled()
+  })
+
+  it('reports all signed in the outputs', async () => {
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([{ name: 'alice', id: 1 }]))
+    await setupClaCheck()
+    expect(core.setOutput).toHaveBeenCalledWith('all-signed', 'true')
+    expect(core.setOutput).toHaveBeenCalledWith('missing', '')
+  })
+
+  it('carries on when the job summary cannot be written', async () => {
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockResolvedValue(signatureFile([{ name: 'alice', id: 1 }]))
+    summary.write.mockRejectedValue(new Error('no summary file'))
+    await setupClaCheck()
+    expect(core.setFailed).not.toHaveBeenCalled()
   })
 
   it('reports a failed signature write', async () => {

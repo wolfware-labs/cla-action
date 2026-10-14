@@ -2,11 +2,15 @@ import * as core from '@actions/core'
 import { context } from '@actions/github'
 import { checkAllowList } from './checkAllowList'
 import getCommitters from './graphql'
-import { Committer, CommitterMap, SignatureFile } from './interfaces'
+import { Committer, CommitterMap, Signature, SignatureFile } from './interfaces'
+import { octokit } from './octokit'
 import { createFile, getFileContent, updateFile } from './persistence/persistence'
 import prCommentSetup from './pullrequest/pullRequestComment'
 import { reRunLastWorkFlowIfRequired } from './pullRerunRunner'
 import { documentKind } from './shared/getInputs'
+
+/** Attempts to commit new signatures when another run changes the file in between. */
+const WRITE_ATTEMPTS = 3
 
 /** Checks that every author has signed, records new signatures and sets the check result. */
 export async function setupClaCheck(): Promise<void> {
@@ -17,18 +21,84 @@ export async function setupClaCheck(): Promise<void> {
   const fromComments = await prCommentSetup(committerMap, committers)
 
   if (fromComments?.newSigned.length) {
-    try {
-      await updateFile(sha, content, fromComments)
-    } catch (error) {
-      throw new Error(`Could not update the signature file: ${(error as Error).message}`)
-    }
+    await recordSignatures(content, sha, fromComments.newSigned)
+    await confirmSignatures(fromComments.newSigned)
   }
 
-  if (fromComments?.allSignedFlag || committerMap.notSigned.length === 0) {
+  const allSigned = Boolean(fromComments?.allSignedFlag) || committerMap.notSigned.length === 0
+  await report(committerMap, allSigned)
+  if (allSigned) {
     core.info(`All contributors have signed the ${documentKind()} 📝 ✅ `)
     await reRunLastWorkFlowIfRequired()
   } else {
     core.setFailed(`Committers of Pull Request number ${context.issue.number} have to sign the ${documentKind()} 📝`)
+  }
+}
+
+/**
+ * Commits new signatures. When another run changed the file since it was
+ * read (409 or 422), reads it again and commits the signatures still missing.
+ */
+async function recordSignatures(content: SignatureFile, sha: string, newSigned: Signature[]): Promise<void> {
+  let missing = newSigned
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await updateFile(sha, content, { newSigned: missing, onlyCommitters: [], allSignedFlag: false })
+      return
+    } catch (error: any) {
+      const conflict = [409, 422].includes(Number(error.status))
+      if (!conflict || attempt === WRITE_ATTEMPTS) {
+        throw new Error(`Could not update the signature file: ${error.message}`)
+      }
+      core.info(`The signature file changed while it was being updated; reading it again (attempt ${attempt + 1} of ${WRITE_ATTEMPTS})`)
+      ;({ content, sha } = await readOrCreateSignatureFile())
+      const stored = new Set(content.signedContributors.map(signature => signature.id))
+      missing = missing.filter(signature => !stored.has(signature.id))
+      if (missing.length === 0) {
+        return
+      }
+    }
+  }
+}
+
+/** Reacts to each recorded signing comment, so its author can see it counted. */
+async function confirmSignatures(signatures: Signature[]): Promise<void> {
+  for (const signature of signatures) {
+    try {
+      await octokit.rest.reactions.createForIssueComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        comment_id: signature.comment_id,
+        content: '+1'
+      })
+    } catch (error) {
+      core.warning(`Could not react to the signature of ${signature.name}: ${(error as Error).message}`)
+    }
+  }
+}
+
+/** Sets the step outputs and writes the job summary. */
+async function report(committerMap: CommitterMap, allSigned: boolean): Promise<void> {
+  const missing = committerMap.notSigned.map(committer => committer.name)
+  const unlinked = committerMap.unknown.map(committer => committer.name)
+  core.setOutput('all-signed', String(allSigned))
+  core.setOutput('missing', missing.join(','))
+  core.setOutput('unlinked', unlinked.join(','))
+
+  const kind = documentKind()
+  const rows = [
+    ...committerMap.signed.map(committer => [committer.name, 'signed']),
+    ...committerMap.notSigned.map(committer => [committer.name, committer.id ? 'not signed' : 'not signed, commit email not linked to an account'])
+  ]
+  try {
+    await core.summary
+      .addHeading(`${kind} signatures for pull request #${context.issue.number}`, 3)
+      .addRaw(allSigned ? `All contributors have signed the ${kind}.` : `${missing.length} of ${rows.length} contributors still have to sign the ${kind}.`, true)
+      .addTable([[{ data: 'Contributor', header: true }, { data: 'Status', header: true }], ...rows])
+      .write()
+  } catch (error) {
+    // Outside GitHub Actions there is no summary file.
+    core.debug(`Could not write the job summary: ${(error as Error).message}`)
   }
 }
 

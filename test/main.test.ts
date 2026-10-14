@@ -17,7 +17,8 @@ describe('run', () => {
     ;({ run } = await import('../src/main'))
   })
 
-  beforeEach(() => reset())
+  const DOC = { 'path-to-document': 'https://example.com/CLA.md' }
+  beforeEach(() => reset(DOC))
 
   it('checks signatures on pull request and comment events', async () => {
     await run()
@@ -42,12 +43,28 @@ describe('run', () => {
   })
 
   it('does nothing on merge when locking is turned off', async () => {
-    reset({ 'lock-pullrequest-aftermerge': 'false' })
+    reset({ ...DOC, 'lock-pullrequest-aftermerge': 'false' })
     context.payload.action = 'closed'
     context.payload.pull_request = { merged: true }
     await run()
     expect(setupClaCheck).not.toHaveBeenCalled()
     expect(lockPullRequest).not.toHaveBeenCalled()
+  })
+
+  it('fails early when path-to-document is missing', async () => {
+    reset()
+    await run()
+    expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('The path-to-document input is required'))
+    expect(setupClaCheck).not.toHaveBeenCalled()
+  })
+
+  it('does not need path-to-document to lock a merged pull request', async () => {
+    reset()
+    context.payload.action = 'closed'
+    context.payload.pull_request = { merged: true }
+    await run()
+    expect(lockPullRequest).toHaveBeenCalled()
+    expect(core.setFailed).not.toHaveBeenCalled()
   })
 
   it('fails the run with the error message', async () => {

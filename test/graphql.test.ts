@@ -8,7 +8,7 @@ const { default: getCommitters } = await import('../src/graphql')
 
 const user = (login: string, databaseId: number) => ({ id: `node-${login}`, databaseId, login })
 
-function commits(...entries: { author: any; committer?: any }[]) {
+function commits(...entries: { author: any; committer?: any; authors?: any }[]) {
   return {
     repository: {
       pullRequest: {
@@ -63,6 +63,26 @@ describe('getCommitters', () => {
     expect(await getCommitters()).toEqual([
       { name: 'carol', id: 3, pullRequestNo: 7 },
       { name: 'Dan Unlinked', id: '', pullRequestNo: 7 }
+    ])
+  })
+
+  it('includes co-authors from Co-authored-by trailers, linked or not', async () => {
+    octokit.graphql.mockResolvedValue(
+      commits({
+        author: { name: 'Alice', email: 'a@x', user: user('alice', 1) },
+        authors: {
+          nodes: [
+            { name: 'Alice', email: 'a@x', user: user('alice', 1) },
+            { name: 'Bob', email: 'b@x', user: user('bob', 2) },
+            { name: 'Erin Unlinked', email: 'e@x', user: null }
+          ]
+        }
+      })
+    )
+    expect(await getCommitters()).toEqual([
+      { name: 'alice', id: 1, pullRequestNo: 7 },
+      { name: 'bob', id: 2, pullRequestNo: 7 },
+      { name: 'Erin Unlinked', id: '', pullRequestNo: 7 }
     ])
   })
 
