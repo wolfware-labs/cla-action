@@ -156,8 +156,8 @@ describe('setupClaCheck', () => {
       const second = octokit.rest.repos.createOrUpdateFileContents.mock.calls[1][0]
       expect(second.sha).toBe('sha-2')
       const names = JSON.parse(Buffer.from(second.content, 'base64').toString()).signedContributors.map((s: { name: string }) => s.name)
-      expect(names).toEqual(['carol', 'bob', 'alice'])
-      expect(octokit.rest.reactions.createForIssueComment.mock.calls.map(call => call[0].comment_id)).toEqual([20, 10])
+      expect(names).toEqual(['carol', 'alice', 'bob'])
+      expect(octokit.rest.reactions.createForIssueComment.mock.calls.map(call => call[0].comment_id)).toEqual([10, 20])
       expect(core.setOutput).toHaveBeenCalledWith('all-signed', 'true')
       expect(core.setFailed).not.toHaveBeenCalled()
     })

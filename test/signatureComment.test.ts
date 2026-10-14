@@ -65,8 +65,11 @@ describe('signatureWithPRComment', () => {
     expect((await signers([alice, bob, committer('github-actions[bot]', 41898282)])).newSigned).toEqual([])
   })
 
-  it('records someone who signed twice once, with the first comment', async () => {
-    comments({ ...prComment('alice', 1, CLA), id: 10 }, { ...prComment('alice', 1, CLA), id: 11 })
+  it('records someone who signed twice once, with the earliest comment', async () => {
+    comments(
+      { ...prComment('alice', 1, CLA), id: 11, created_at: '2026-10-13T02:00:00Z' },
+      { ...prComment('alice', 1, CLA), id: 10, created_at: '2026-10-13T01:00:00Z' }
+    )
     const result = await signers()
     expect(result.newSigned.map(s => [s.name, s.comment_id])).toEqual([['alice', 10]])
     expect(result.onlyCommitters).toEqual([alice])
