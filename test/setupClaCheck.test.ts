@@ -238,10 +238,11 @@ describe('setupClaCheck', () => {
     await expect(setupClaCheck()).rejects.toThrow('The signature file is not valid JSON:')
   })
 
-  it('stops when the file another run created has disappeared', async () => {
+  it('keeps the create error when a 422 is not a race', async () => {
     authors(['alice', 1])
     octokit.rest.repos.getContent.mockRejectedValue(httpError(404))
     octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(httpError(422))
-    await expect(setupClaCheck()).rejects.toThrow('another run created it, but it cannot be found')
+    await expect(setupClaCheck()).rejects.toThrow('Make sure the branch where signatures are stored exists')
+    expect(octokit.rest.repos.getContent).toHaveBeenCalledTimes(2)
   })
 })

@@ -37426,23 +37426,22 @@ const linked = (user) => ({ name: user.login, id: user.databaseId, key: `id:${us
 const unlinked = (name, email) => ({ name, id: '', key: `email:${(email || name).toLowerCase()}` });
 const account = (actor) => (actor.user ? linked(actor.user) : unlinked(actor.name || '', actor.email));
 /**
- * Everyone who wrote a commit: the author and the co-authors named in
- * Co-authored-by trailers, which GitHub lists under `authors`. A commit
- * without that list falls back to its author, then its committer. A commit
- * with more authors than one page holds fails the check, so nobody is skipped.
+ * Everyone who wrote a commit: the author, or the committer when only the
+ * committer is linked to an account, plus the co-authors named in
+ * Co-authored-by trailers, which GitHub lists under `authors` after the
+ * author. A commit with more authors than one page holds fails the check,
+ * so nobody is skipped.
  */
 function accountsOf(commit) {
     if (commit.authors && (commit.authors.totalCount ?? 0) > commit.authors.nodes.length) {
         throw new Error(`commit ${commit.oid} has ${commit.authors.totalCount} authors; at most ${commit.authors.nodes.length} can be checked`);
     }
-    if (commit.authors?.nodes.length) {
-        return commit.authors.nodes.map(account);
-    }
     const user = commit.author.user || commit.committer.user;
-    if (user) {
-        return [linked(user)];
-    }
-    return [unlinked(commit.author.name || commit.committer.name || '', commit.author.email)];
+    const primary = user ? linked(user) : unlinked(commit.author.name || commit.committer.name || '', commit.author.email);
+    // The authors list repeats the commit author, whom `primary` already stands for.
+    const authorKey = account(commit.author).key;
+    const coAuthors = (commit.authors?.nodes ?? []).map(account).filter(coAuthor => coAuthor.key !== authorKey);
+    return [primary, ...coAuthors];
 }
 /** The distinct authors and co-authors of all of the pull request's commits, read 100 at a time. */
 async function getCommitters() {
@@ -37905,17 +37904,16 @@ async function createSignatureFile() {
         return { content, sha: created.data.content?.sha };
     }
     catch (error) {
-        if (![409, 422].includes(Number(error.status))) {
-            throw new Error(`Error occurred when creating the signed contributors file: ${error.message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`);
+        // 409 or 422 can mean another run created the file first; only a file that is now there proves it.
+        if ([409, 422].includes(Number(error.status))) {
+            const existing = await readSignatureFile();
+            if (existing) {
+                info('Another run created the signature file first; using it');
+                return existing;
+            }
         }
+        throw new Error(`Error occurred when creating the signed contributors file: ${error.message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`);
     }
-    // Another run created the file first: use that one.
-    info('Another run created the signature file first; reading it');
-    const existing = await readSignatureFile();
-    if (!existing) {
-        throw new Error('Could not create the signature file: another run created it, but it cannot be found');
-    }
-    return existing;
 }
 function groupCommitters(committers, content) {
     const hasSigned = (committer) => content.signedContributors.some(signature => signature.id === committer.id);

@@ -137,19 +137,18 @@ async function createSignatureFile(): Promise<{ content: SignatureFile; sha: str
     core.info('Created the signature file')
     return { content, sha: created.data.content?.sha as string }
   } catch (error: any) {
-    if (![409, 422].includes(Number(error.status))) {
-      throw new Error(
-        `Error occurred when creating the signed contributors file: ${(error as Error).message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`
-      )
+    // 409 or 422 can mean another run created the file first; only a file that is now there proves it.
+    if ([409, 422].includes(Number(error.status))) {
+      const existing = await readSignatureFile()
+      if (existing) {
+        core.info('Another run created the signature file first; using it')
+        return existing
+      }
     }
+    throw new Error(
+      `Error occurred when creating the signed contributors file: ${(error as Error).message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`
+    )
   }
-  // Another run created the file first: use that one.
-  core.info('Another run created the signature file first; reading it')
-  const existing = await readSignatureFile()
-  if (!existing) {
-    throw new Error('Could not create the signature file: another run created it, but it cannot be found')
-  }
-  return existing
 }
 
 function groupCommitters(committers: Committer[], content: SignatureFile): CommitterMap {

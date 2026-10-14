@@ -86,6 +86,25 @@ describe('getCommitters', () => {
     ])
   })
 
+  it('counts the linked committer for an unlinked author, and adds the co-authors', async () => {
+    octokit.graphql.mockResolvedValue(
+      commits({
+        author: { name: 'Laptop Alice', email: 'alice@laptop', user: null },
+        committer: { name: 'Alice', user: user('alice', 1) },
+        authors: {
+          nodes: [
+            { name: 'Laptop Alice', email: 'alice@laptop', user: null },
+            { name: 'Bob', email: 'b@x', user: user('bob', 2) }
+          ]
+        }
+      })
+    )
+    expect(await getCommitters()).toEqual([
+      { name: 'alice', id: 1, pullRequestNo: 7 },
+      { name: 'bob', id: 2, pullRequestNo: 7 }
+    ])
+  })
+
   it('tells contributors apart by account id or commit email, not by name', async () => {
     octokit.graphql.mockResolvedValue(
       commits(

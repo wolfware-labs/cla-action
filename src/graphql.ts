@@ -55,23 +55,22 @@ const unlinked = (name: string, email?: string): Account => ({ name, id: '', key
 const account = (actor: GitActor): Account => (actor.user ? linked(actor.user) : unlinked(actor.name || '', actor.email))
 
 /**
- * Everyone who wrote a commit: the author and the co-authors named in
- * Co-authored-by trailers, which GitHub lists under `authors`. A commit
- * without that list falls back to its author, then its committer. A commit
- * with more authors than one page holds fails the check, so nobody is skipped.
+ * Everyone who wrote a commit: the author, or the committer when only the
+ * committer is linked to an account, plus the co-authors named in
+ * Co-authored-by trailers, which GitHub lists under `authors` after the
+ * author. A commit with more authors than one page holds fails the check,
+ * so nobody is skipped.
  */
 function accountsOf(commit: Commit): Account[] {
   if (commit.authors && (commit.authors.totalCount ?? 0) > commit.authors.nodes.length) {
     throw new Error(`commit ${commit.oid} has ${commit.authors.totalCount} authors; at most ${commit.authors.nodes.length} can be checked`)
   }
-  if (commit.authors?.nodes.length) {
-    return commit.authors.nodes.map(account)
-  }
   const user = commit.author.user || commit.committer.user
-  if (user) {
-    return [linked(user)]
-  }
-  return [unlinked(commit.author.name || commit.committer.name || '', commit.author.email)]
+  const primary = user ? linked(user) : unlinked(commit.author.name || commit.committer.name || '', commit.author.email)
+  // The authors list repeats the commit author, whom `primary` already stands for.
+  const authorKey = account(commit.author).key
+  const coAuthors = (commit.authors?.nodes ?? []).map(account).filter(coAuthor => coAuthor.key !== authorKey)
+  return [primary, ...coAuthors]
 }
 
 /** The distinct authors and co-authors of all of the pull request's commits, read 100 at a time. */
