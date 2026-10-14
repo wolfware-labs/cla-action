@@ -37791,19 +37791,7 @@ const WRITE_ATTEMPTS = 3;
 /** Checks that every author has signed, records new signatures and sets the check result. */
 async function setupClaCheck() {
     const committers = checkAllowList(await getCommitters());
-    const { content, sha } = await readOrCreateSignatureFile();
-    let committerMap = groupCommitters(committers, content);
-    let fromComments = await prCommentSetup(committerMap, committers);
-    if (fromComments?.newSigned.length) {
-        const newSigned = fromComments.newSigned;
-        const latest = await recordSignatures(content, sha, newSigned);
-        if (latest) {
-            // Another run changed the file meanwhile: check again against what it holds now.
-            committerMap = groupCommitters(committers, latest);
-            fromComments = await prCommentSetup(committerMap, committers);
-        }
-        await confirmSignatures(newSigned);
-    }
+    const { committerMap, fromComments } = await checkAndRecord(committers);
     const allSigned = Boolean(fromComments?.allSignedFlag) || committerMap.notSigned.length === 0;
     await report(committerMap, allSigned);
     if (allSigned) {
@@ -37815,31 +37803,38 @@ async function setupClaCheck() {
     }
 }
 /**
- * Commits new signatures. When another run changed the file since it was
- * read (409 or 422), reads it again and commits the signatures still missing,
- * and returns the file as it now stands; otherwise returns undefined.
+ * Groups the authors against the signature file, updates the bot's comment
+ * and commits the new signatures found in the comments. When another run
+ * changed the file first (409 or 422), starts again from the file as it now
+ * stands, so every signature this run reports is in the file.
  */
-async function recordSignatures(content, sha, newSigned) {
-    let missing = newSigned;
+async function checkAndRecord(committers) {
+    let { content, sha } = await readOrCreateSignatureFile();
     for (let attempt = 1;; attempt++) {
-        try {
-            // updateFile appends the signatures to content.
-            await updateFile(sha, content, { newSigned: missing, onlyCommitters: [], allSignedFlag: false });
-            return attempt === 1 ? undefined : content;
+        const committerMap = groupCommitters(committers, content);
+        const fromComments = await prCommentSetup(committerMap, committers);
+        const newSigned = fromComments?.newSigned ?? [];
+        if (newSigned.length === 0 || (await writeSignatures(sha, content, newSigned, attempt))) {
+            await confirmSignatures(newSigned);
+            return { committerMap, fromComments };
         }
-        catch (error) {
-            const conflict = [409, 422].includes(Number(error.status));
-            if (!conflict || attempt === WRITE_ATTEMPTS) {
-                throw new Error(`Could not update the signature file: ${error.message}`);
-            }
-            info(`The signature file changed while it was being updated; reading it again (attempt ${attempt + 1} of ${WRITE_ATTEMPTS})`);
-            ({ content, sha } = await readOrCreateSignatureFile());
-            const stored = new Set(content.signedContributors.map(signature => signature.id));
-            missing = missing.filter(signature => !stored.has(signature.id));
-            if (missing.length === 0) {
-                return content;
-            }
+        ;
+        ({ content, sha } = await readOrCreateSignatureFile());
+    }
+}
+/** Commits new signatures. False when another run changed the file first and attempts remain. */
+async function writeSignatures(sha, content, newSigned, attempt) {
+    try {
+        await updateFile(sha, content, { newSigned, onlyCommitters: [], allSignedFlag: false });
+        return true;
+    }
+    catch (error) {
+        const conflict = [409, 422].includes(Number(error.status));
+        if (!conflict || attempt === WRITE_ATTEMPTS) {
+            throw new Error(`Could not update the signature file: ${error.message}`);
         }
+        info(`The signature file changed while it was being updated; reading it again (attempt ${attempt + 1} of ${WRITE_ATTEMPTS})`);
+        return false;
     }
 }
 /** Reacts to each recorded signing comment, so its author can see it counted. */

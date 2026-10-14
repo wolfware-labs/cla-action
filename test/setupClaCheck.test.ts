@@ -143,6 +143,25 @@ describe('setupClaCheck', () => {
       expect(octokit.rest.issues.updateComment.mock.calls.at(-1)?.[0].body).toContain('All contributors have signed the CLA')
     })
 
+    it('records a signature posted between the conflict and the rescan', async () => {
+      authors(['alice', 1], ['bob', 2])
+      octokit.rest.issues.listComments
+        .mockResolvedValueOnce({ data: [botComment, prComment('bob', 2, CLA)] })
+        .mockResolvedValueOnce({ data: [botComment, prComment('bob', 2, CLA), prComment('alice', 1, CLA)] })
+      octokit.rest.repos.getContent
+        .mockResolvedValueOnce(signatureFile([], 'sha-1'))
+        .mockResolvedValueOnce(signatureFile([{ name: 'carol', id: 3 }], 'sha-2'))
+      octokit.rest.repos.createOrUpdateFileContents.mockRejectedValueOnce(httpError(409)).mockResolvedValueOnce({ data: {} })
+      await setupClaCheck()
+      const second = octokit.rest.repos.createOrUpdateFileContents.mock.calls[1][0]
+      expect(second.sha).toBe('sha-2')
+      const names = JSON.parse(Buffer.from(second.content, 'base64').toString()).signedContributors.map((s: { name: string }) => s.name)
+      expect(names).toEqual(['carol', 'bob', 'alice'])
+      expect(octokit.rest.reactions.createForIssueComment.mock.calls.map(call => call[0].comment_id)).toEqual([20, 10])
+      expect(core.setOutput).toHaveBeenCalledWith('all-signed', 'true')
+      expect(core.setFailed).not.toHaveBeenCalled()
+    })
+
     it('gives up after three conflicts', async () => {
       octokit.rest.repos.getContent.mockResolvedValue(signatureFile([], 'sha-1'))
       octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(httpError(409, 'conflict'))
