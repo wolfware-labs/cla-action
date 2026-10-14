@@ -17,8 +17,8 @@ export default async function signatureWithPRComment(committerMap: CommitterMap,
     let filteredListOfPRComments = [] as CommittersDetails[]
 
     prResponse?.data.map((prComment) => {
-        // Comments from deleted accounts have no user; empty comments have no body.
-        if (!prComment.user || prComment.body === undefined) {
+        // Comments from deleted accounts have no user; a comment body can be null or empty.
+        if (!prComment.user || !prComment.body) {
             return
         }
         listOfPRComments.push({

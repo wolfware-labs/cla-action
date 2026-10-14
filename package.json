@@ -4,8 +4,7 @@
   "description": "GitHub Action that asks pull request authors to sign a CLA or DCO and records the signatures in a repository",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && ncc build src/main.ts -o dist --license licenses.txt",
-    "test": "vitest run"
+    "build": "npm run typecheck && ncc build src/main.ts -o dist --license licenses.txt"
   },
   "repository": {
     "type": "git",
@@ -39,7 +38,6 @@
     "@types/lodash": "4.17.26",
     "@types/node": "24.19.2",
     "@vercel/ncc": "0.45.0",
-    "typescript": "5.9.3",
-    "vitest": "5.0.4"
+    "typescript": "5.9.3"
   }
 }
