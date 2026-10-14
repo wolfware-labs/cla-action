@@ -26,17 +26,18 @@ describe('signatureWithPRComment', () => {
   it('reads the comments of the pull request', async () => {
     comments()
     await signers()
-    expect(octokit.rest.issues.listComments).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets', issue_number: 7 })
+    expect(octokit.paginate).toHaveBeenCalledWith(octokit.rest.issues.listComments, {
+      owner: 'acme',
+      repo: 'widgets',
+      issue_number: 7,
+      per_page: 100
+    })
   })
 
-  it('reads only the first page of comments (current behaviour)', async () => {
-    const firstPage = Array.from({ length: 30 }, (_, i) => prComment(`user${i}`, 1000 + i, 'looks good'))
-    octokit.rest.issues.listComments
-      .mockResolvedValueOnce({ data: firstPage })
-      .mockResolvedValueOnce({ data: [prComment('bob', 2, CLA)] })
-    const result = await signers()
-    expect(octokit.rest.issues.listComments).toHaveBeenCalledTimes(1)
-    expect(result.newSigned).toEqual([])
+  it('finds a signature after many other comments', async () => {
+    const chatter = Array.from({ length: 149 }, (_, i) => prComment(`user${i}`, 1000 + i, 'looks good'))
+    octokit.paginate.mockResolvedValue([...chatter, prComment('bob', 2, CLA)])
+    expect((await signers()).newSigned.map(s => s.name)).toEqual(['bob'])
   })
 
   it('records a committer who posted the default sentence', async () => {

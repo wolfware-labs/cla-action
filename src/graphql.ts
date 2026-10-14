@@ -40,27 +40,39 @@ function accountOf(commit: { author: GitActor; committer: GitActor }): { name: s
   return { name: commit.author.name || commit.committer.name || '', id: '' }
 }
 
-/** The distinct authors of the pull request's commits. */
+/** The distinct authors of all of the pull request's commits, read 100 at a time. */
 export default async function getCommitters(): Promise<Committer[]> {
-  let response: any
-  try {
-    response = await octokit.graphql(QUERY, {
-      owner: context.repo.owner,
-      name: context.repo.repo,
-      number: context.issue.number,
-      cursor: ''
-    })
-  } catch (error) {
-    throw new Error(`graphql call to get the committers details failed: ${error}`)
-  }
-
   const committers: Committer[] = []
-  for (const edge of response.repository.pullRequest.commits.edges) {
-    const { name, id } = accountOf(edge.node.commit)
-    if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
-      continue
+  let cursor = ''
+  for (;;) {
+    let commits: any
+    try {
+      const response: any = await octokit.graphql(QUERY, {
+        owner: context.repo.owner,
+        name: context.repo.repo,
+        number: context.issue.number,
+        cursor
+      })
+      commits = response.repository.pullRequest.commits
+    } catch (error) {
+      throw new Error(`graphql call to get the committers details failed: ${error}`)
     }
-    committers.push({ name, id, pullRequestNo: context.issue.number })
+
+    for (const edge of commits.edges) {
+      const { name, id } = accountOf(edge.node.commit)
+      if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
+        continue
+      }
+      committers.push({ name, id, pullRequestNo: context.issue.number })
+    }
+
+    if (!commits.pageInfo.hasNextPage) {
+      return committers
+    }
+    const next = commits.pageInfo.endCursor
+    if (!next || next === cursor) {
+      throw new Error('graphql call to get the committers details failed: the commit list did not advance to the next page')
+    }
+    cursor = next
   }
-  return committers
 }

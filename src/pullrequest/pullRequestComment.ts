@@ -50,10 +50,11 @@ function allSigned(committerMap: CommitterMap, signedInComments: Committer[], co
 async function getBotComment() {
   const marker = `${documentKind()} Assistant Lite bot`
   try {
-    const { data: comments } = await octokit.rest.issues.listComments({
+    const comments = await octokit.paginate(octokit.rest.issues.listComments, {
       owner: context.repo.owner,
       repo: context.repo.repo,
-      issue_number: context.issue.number
+      issue_number: context.issue.number,
+      per_page: 100
     })
     return comments.find(comment => comment.user?.login === BOT_LOGIN && comment.body?.includes(marker))
   } catch (error) {

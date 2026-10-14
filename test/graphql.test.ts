@@ -73,13 +73,26 @@ describe('getCommitters', () => {
     expect(await getCommitters()).toEqual([])
   })
 
-  it('reads only the first page of 100 commits (current behaviour)', async () => {
-    const page = commits({ author: { name: 'Alice', email: 'a@x', user: user('alice', 1) } })
-    page.repository.pullRequest.commits.pageInfo.hasNextPage = true
-    octokit.graphql.mockResolvedValue(page)
-    await getCommitters()
-    expect(octokit.graphql).toHaveBeenCalledTimes(1)
+  it('reads every page of commits, 100 at a time', async () => {
+    const first = commits({ author: { name: 'Alice', email: 'a@x', user: user('alice', 1) } })
+    first.repository.pullRequest.commits.pageInfo = { endCursor: 'page-1', hasNextPage: true }
+    const second = commits(
+      { author: { name: 'Alice', email: 'a@x', user: user('alice', 1) } },
+      { author: { name: 'Bob', email: 'b@x', user: user('bob', 2) } }
+    )
+    octokit.graphql.mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    expect((await getCommitters()).map(c => c.name)).toEqual(['alice', 'bob'])
+    expect(octokit.graphql).toHaveBeenCalledTimes(2)
+    expect(octokit.graphql.mock.calls[1][1].cursor).toBe('page-1')
     expect(octokit.graphql.mock.calls[0][0]).toMatch(/commits\(first: 100, after: \$cursor\)/)
+  })
+
+  it('stops when the next page cursor does not advance', async () => {
+    const page = commits({ author: { name: 'Alice', email: 'a@x', user: user('alice', 1) } })
+    page.repository.pullRequest.commits.pageInfo = { endCursor: '', hasNextPage: true }
+    octokit.graphql.mockResolvedValue(page)
+    await expect(getCommitters()).rejects.toThrow('did not advance to the next page')
+    expect(octokit.graphql).toHaveBeenCalledTimes(1)
   })
 
   it('wraps API errors', async () => {

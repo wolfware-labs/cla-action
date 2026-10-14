@@ -37425,29 +37425,40 @@ function accountOf(commit) {
     }
     return { name: commit.author.name || commit.committer.name || '', id: '' };
 }
-/** The distinct authors of the pull request's commits. */
+/** The distinct authors of all of the pull request's commits, read 100 at a time. */
 async function getCommitters() {
-    let response;
-    try {
-        response = await octokit.graphql(QUERY, {
-            owner: github_context.repo.owner,
-            name: github_context.repo.repo,
-            number: github_context.issue.number,
-            cursor: ''
-        });
-    }
-    catch (error) {
-        throw new Error(`graphql call to get the committers details failed: ${error}`);
-    }
     const committers = [];
-    for (const edge of response.repository.pullRequest.commits.edges) {
-        const { name, id } = accountOf(edge.node.commit);
-        if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
-            continue;
+    let cursor = '';
+    for (;;) {
+        let commits;
+        try {
+            const response = await octokit.graphql(QUERY, {
+                owner: github_context.repo.owner,
+                name: github_context.repo.repo,
+                number: github_context.issue.number,
+                cursor
+            });
+            commits = response.repository.pullRequest.commits;
         }
-        committers.push({ name, id, pullRequestNo: github_context.issue.number });
+        catch (error) {
+            throw new Error(`graphql call to get the committers details failed: ${error}`);
+        }
+        for (const edge of commits.edges) {
+            const { name, id } = accountOf(edge.node.commit);
+            if (id === GITHUB_ACTIONS_BOT_ID || committers.some(c => c.name === name)) {
+                continue;
+            }
+            committers.push({ name, id, pullRequestNo: github_context.issue.number });
+        }
+        if (!commits.pageInfo.hasNextPage) {
+            return committers;
+        }
+        const next = commits.pageInfo.endCursor;
+        if (!next || next === cursor) {
+            throw new Error('graphql call to get the committers details failed: the commit list did not advance to the next page');
+        }
+        cursor = next;
     }
-    return committers;
 }
 
 ;// CONCATENATED MODULE: ./src/persistence/persistence.ts
@@ -37570,10 +37581,11 @@ function isSignature(body) {
 }
 /** Finds the signatures posted as comments on the pull request. */
 async function signatureWithPRComment(committerMap, committers) {
-    const { data: comments } = await octokit.rest.issues.listComments({
+    const comments = await octokit.paginate(octokit.rest.issues.listComments, {
         owner: github_context.repo.owner,
         repo: github_context.repo.repo,
-        issue_number: github_context.issue.number
+        issue_number: github_context.issue.number,
+        per_page: 100
     });
     const signatures = [];
     for (const comment of comments) {
@@ -37642,10 +37654,11 @@ function allSigned(committerMap, signedInComments, committers) {
 async function getBotComment() {
     const marker = `${documentKind()} Assistant Lite bot`;
     try {
-        const { data: comments } = await octokit.rest.issues.listComments({
+        const comments = await octokit.paginate(octokit.rest.issues.listComments, {
             owner: github_context.repo.owner,
             repo: github_context.repo.repo,
-            issue_number: github_context.issue.number
+            issue_number: github_context.issue.number,
+            per_page: 100
         });
         return comments.find(comment => comment.user?.login === pullRequestComment_BOT_LOGIN && comment.body?.includes(marker));
     }

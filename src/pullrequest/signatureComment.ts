@@ -25,10 +25,11 @@ export default async function signatureWithPRComment(
   committerMap: CommitterMap,
   committers: Committer[]
 ): Promise<CommentSignatures> {
-  const { data: comments } = await octokit.rest.issues.listComments({
+  const comments = await octokit.paginate(octokit.rest.issues.listComments, {
     owner: context.repo.owner,
     repo: context.repo.repo,
-    issue_number: context.issue.number
+    issue_number: context.issue.number,
+    per_page: 100
   })
 
   const signatures: Signature[] = []

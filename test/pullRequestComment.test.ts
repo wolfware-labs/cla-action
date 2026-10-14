@@ -54,13 +54,12 @@ describe('prCommentSetup', () => {
     expect(body).toContain('**1** out of **2** committers have signed the CLA.')
   })
 
-  it('posts a second request when its comment is past the first page (current behaviour)', async () => {
-    const firstPage = Array.from({ length: 30 }, (_, i) => ({ id: i, body: 'hi', user: { login: `user${i}`, id: 1000 + i } }))
-    octokit.rest.issues.listComments.mockResolvedValueOnce({ data: firstPage }).mockResolvedValueOnce({ data: [botComment] })
+  it('finds its comment after the first page of comments', async () => {
+    const chatter = Array.from({ length: 120 }, (_, i) => ({ id: i, body: 'hi', user: { login: `user${i}`, id: 1000 + i } }))
+    octokit.paginate.mockResolvedValue([...chatter, botComment])
     await prCommentSetup({ signed: [], notSigned: [alice], unknown: [] }, [alice])
-    expect(octokit.rest.issues.listComments).toHaveBeenCalledTimes(1)
-    expect(octokit.rest.issues.createComment).toHaveBeenCalled()
-    expect(octokit.rest.issues.updateComment).not.toHaveBeenCalled()
+    expect(octokit.rest.issues.createComment).not.toHaveBeenCalled()
+    expect(octokit.rest.issues.updateComment.mock.calls[0][0].comment_id).toBe(500)
   })
 
   it('does not treat a comment by someone else as its own', async () => {
