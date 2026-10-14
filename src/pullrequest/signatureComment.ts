@@ -1,77 +1,58 @@
-import { octokit } from '../octokit'
 import { context } from '@actions/github'
-import { CommitterMap, CommittersDetails, ReactedCommitterMap } from '../interfaces'
-import { getUseDcoFlag, getCustomPrSignComment } from '../shared/getInputs'
+import { octokit } from '../octokit'
+import { CommentSignatures, Committer, CommitterMap, Signature } from '../interfaces'
+import { getCustomPrSignComment, useDco } from '../shared/getInputs'
 
-import * as core from '@actions/core'
+const BOT_LOGIN = 'github-actions[bot]'
 
-export default async function signatureWithPRComment(committerMap: CommitterMap, committers): Promise<ReactedCommitterMap> {
-
-    let repoId = context.payload.repository!.id
-    let prResponse = await octokit.rest.issues.listComments({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
-        issue_number: context.issue.number
-    })
-    let listOfPRComments = [] as CommittersDetails[]
-    let filteredListOfPRComments = [] as CommittersDetails[]
-
-    prResponse?.data.map((prComment) => {
-        // Comments from deleted accounts have no user; a comment body can be null or empty.
-        if (!prComment.user || !prComment.body) {
-            return
-        }
-        listOfPRComments.push({
-            name: prComment.user.login,
-            id: prComment.user.id,
-            comment_id: prComment.id,
-            body: prComment.body.trim().toLowerCase(),
-            created_at: prComment.created_at,
-            repoId: repoId,
-            pullRequestNo: context.issue.number
-        })
-    })
-    listOfPRComments.map(comment => {
-        if (isCommentSignedByUser(comment.body || "", comment.name)) {
-            filteredListOfPRComments.push(comment)
-        }
-    })
-    for (var i = 0; i < filteredListOfPRComments.length; i++) {
-        delete filteredListOfPRComments[i].body
-    }
-    /*
-    *checking if the reacted committers are not the signed committers(not in the storage file) and filtering only the unsigned committers
-    */
-    const newSigned = filteredListOfPRComments.filter(commentedCommitter => committerMap.notSigned!.some(notSignedCommitter => commentedCommitter.id === notSignedCommitter.id))
-
-    /*
-    * checking if the commented users are only the contributors who has committed in the same PR (This is needed for the PR Comment and changing the status to success when all the contributors has reacted to the PR)
-    */
-    const onlyCommitters = committers.filter(committer => filteredListOfPRComments.some(commentedCommitter => committer.id == commentedCommitter.id))
-    const commentedCommitterMap: ReactedCommitterMap = {
-        newSigned,
-        onlyCommitters,
-        allSignedFlag: false
-    }
-
-    return commentedCommitterMap
-
+// The default sentences tolerate extra spaces and text around them.
+const DEFAULT_SENTENCE = {
+  CLA: /^.*i \s*have \s*read \s*the \s*cla \s*document \s*and \s*i \s*hereby \s*sign \s*the \s*cla.*$/,
+  DCO: /^.*i \s*have \s*read \s*the \s*dco \s*document \s*and \s*i \s*hereby \s*sign \s*the \s*dco.*$/
 }
 
-function isCommentSignedByUser(comment: string, commentAuthor: string): boolean {
-    if (commentAuthor === 'github-actions[bot]') {
-        return false
+/** Whether a comment body (trimmed and lower-cased) is a signature. */
+function isSignature(body: string): boolean {
+  const custom = getCustomPrSignComment()
+  if (custom !== '') {
+    return custom.toLowerCase() === body
+  }
+  return DEFAULT_SENTENCE[useDco() ? 'DCO' : 'CLA'].test(body)
+}
+
+/** Finds the signatures posted as comments on the pull request. */
+export default async function signatureWithPRComment(
+  committerMap: CommitterMap,
+  committers: Committer[]
+): Promise<CommentSignatures> {
+  const { data: comments } = await octokit.rest.issues.listComments({
+    owner: context.repo.owner,
+    repo: context.repo.repo,
+    issue_number: context.issue.number
+  })
+
+  const signatures: Signature[] = []
+  for (const comment of comments) {
+    // Comments from deleted accounts have no user; a comment body can be null or empty.
+    if (!comment.user || !comment.body || comment.user.login === BOT_LOGIN) {
+      continue
     }
-    if (getCustomPrSignComment() !== "") {
-        return getCustomPrSignComment().toLowerCase() === comment
+    if (isSignature(comment.body.trim().toLowerCase())) {
+      signatures.push({
+        name: comment.user.login,
+        id: comment.user.id,
+        comment_id: comment.id,
+        created_at: comment.created_at,
+        repoId: context.payload.repository!.id,
+        pullRequestNo: context.issue.number
+      })
     }
-    // using a `string` true or false purposely as github action input cannot have a boolean value
-    switch (getUseDcoFlag()) {
-        case 'true':
-            return comment.match(/^.*i \s*have \s*read \s*the \s*dco \s*document \s*and \s*i \s*hereby \s*sign \s*the \s*dco.*$/) !== null
-        case 'false':
-            return comment.match(/^.*i \s*have \s*read \s*the \s*cla \s*document \s*and \s*i \s*hereby \s*sign \s*the \s*cla.*$/) !== null
-        default:
-            return false
-    }
+  }
+
+  const signedBy = (committer: Committer) => signatures.some(signature => signature.id === committer.id)
+  return {
+    newSigned: signatures.filter(signature => committerMap.notSigned.some(c => c.id === signature.id)),
+    onlyCommitters: committers.filter(signedBy),
+    allSignedFlag: false
+  }
 }

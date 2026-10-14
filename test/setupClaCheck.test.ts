@@ -63,7 +63,7 @@ describe('setupClaCheck', () => {
     await setupClaCheck()
     const write = octokit.rest.repos.createOrUpdateFileContents.mock.calls[0][0]
     expect(write.sha).toBe('sha-1')
-    expect(JSON.parse(Buffer.from(write.content, 'base64').toString()).signedContributors.map(s => s.name)).toEqual(['bob'])
+    expect(JSON.parse(Buffer.from(write.content, 'base64').toString()).signedContributors.map((s: { name: string }) => s.name)).toEqual(['bob'])
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(reRunLastWorkFlowIfRequired).toHaveBeenCalled()
   })
@@ -73,25 +73,33 @@ describe('setupClaCheck', () => {
     octokit.rest.repos.getContent.mockResolvedValue(signatureFile([]))
     octokit.rest.issues.listComments.mockResolvedValue({ data: [botComment, prComment('bob', 2, CLA)] })
     octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(new Error('409 conflict'))
-    await setupClaCheck()
-    expect(core.setFailed).toHaveBeenCalledWith('Could not update the JSON file: 409 conflict')
+    await expect(setupClaCheck()).rejects.toThrow('Could not update the signature file: 409 conflict')
   })
 
-  it('creates the signature file on the first run, then fails (current behaviour)', async () => {
+  it('creates the signature file on the first run and checks as usual', async () => {
     authors(['alice', 1])
     octokit.rest.repos.getContent.mockRejectedValue(httpError(404))
-    await expect(setupClaCheck()).rejects.toThrow('Committers of pull request 7 have to sign the CLA')
+    await setupClaCheck()
     const create = octokit.rest.repos.createOrUpdateFileContents.mock.calls[0][0]
     expect(JSON.parse(Buffer.from(create.content, 'base64').toString())).toEqual({ signedContributors: [] })
     expect(octokit.rest.issues.createComment).toHaveBeenCalled()
+    expect(core.setFailed).toHaveBeenCalledWith('Committers of Pull Request number 7 have to sign the CLA 📝')
   })
 
-  it('points at branch protection when the first file cannot be created', async () => {
+  it('passes the first run when every author is allowlisted', async () => {
+    reset({ allowlist: 'alice', branch: 'cla-signatures' })
+    authors(['alice', 1])
+    octokit.rest.repos.getContent.mockRejectedValue(httpError(404))
+    await setupClaCheck()
+    expect(octokit.rest.repos.createOrUpdateFileContents).toHaveBeenCalled()
+    expect(core.setFailed).not.toHaveBeenCalled()
+  })
+
+  it('explains what to check when the first file cannot be created', async () => {
     authors(['alice', 1])
     octokit.rest.repos.getContent.mockRejectedValue(httpError(404))
     octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(new Error('403'))
-    await expect(setupClaCheck()).rejects.toThrow()
-    expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('Make sure the branch where signatures are stored is NOT protected.'))
+    await expect(setupClaCheck()).rejects.toThrow('Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.')
   })
 
   it('stops on any other error reading the file', async () => {

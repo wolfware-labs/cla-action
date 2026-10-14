@@ -2,137 +2,68 @@ import * as core from '@actions/core'
 import { context } from '@actions/github'
 import { checkAllowList } from './checkAllowList'
 import getCommitters from './graphql'
-import {
-  ClafileContentAndSha,
-  CommitterMap,
-  CommittersDetails,
-  ReactedCommitterMap
-} from './interfaces'
-import {
-  createFile,
-  getFileContent,
-  updateFile
-} from './persistence/persistence'
+import { Committer, CommitterMap, SignatureFile } from './interfaces'
+import { createFile, getFileContent, updateFile } from './persistence/persistence'
 import prCommentSetup from './pullrequest/pullRequestComment'
 import { reRunLastWorkFlowIfRequired } from './pullRerunRunner'
 
-export async function setupClaCheck() {
-  let committerMap = getInitialCommittersMap()
+/** Checks that every author has signed, records new signatures and sets the check result. */
+export async function setupClaCheck(): Promise<void> {
+  const committers = checkAllowList(await getCommitters())
+  const { content, sha } = await readOrCreateSignatureFile()
+  const committerMap = groupCommitters(committers, content)
 
-  let committers = await getCommitters()
-  committers = checkAllowList(committers)
+  const fromComments = await prCommentSetup(committerMap, committers)
 
-  const { claFileContent, sha } = (await getCLAFileContentandSHA(
-    committers,
-    committerMap
-  )) as ClafileContentAndSha
-
-  committerMap = prepareCommiterMap(committers, claFileContent) as CommitterMap
-
-  try {
-    const reactedCommitters = (await prCommentSetup(
-      committerMap,
-      committers
-    )) as ReactedCommitterMap
-
-    if (reactedCommitters?.newSigned.length) {
-      /* pushing the recently signed  contributors to the CLA Json File */
-      await updateFile(sha, claFileContent, reactedCommitters)
+  if (fromComments?.newSigned.length) {
+    try {
+      await updateFile(sha, content, fromComments)
+    } catch (error) {
+      throw new Error(`Could not update the signature file: ${(error as Error).message}`)
     }
-    if (
-      reactedCommitters?.allSignedFlag ||
-      committerMap?.notSigned === undefined ||
-      committerMap.notSigned.length === 0
-    ) {
-      core.info(`All contributors have signed the CLA 📝 ✅ `)
-      return reRunLastWorkFlowIfRequired()
-    } else {
-      core.setFailed(
-        `Committers of Pull Request number ${context.issue.number} have to sign the CLA 📝`
-      )
-    }
-  } catch (err) {
-    core.setFailed(`Could not update the JSON file: ${err.message}`)
+  }
+
+  if (fromComments?.allSignedFlag || committerMap.notSigned.length === 0) {
+    core.info('All contributors have signed the CLA 📝 ✅ ')
+    await reRunLastWorkFlowIfRequired()
+  } else {
+    core.setFailed(`Committers of Pull Request number ${context.issue.number} have to sign the CLA 📝`)
   }
 }
 
-async function getCLAFileContentandSHA(
-  committers: CommittersDetails[],
-  committerMap: CommitterMap
-): Promise<void | ClafileContentAndSha> {
-  let result, claFileContentString, claFileContent, sha
+/** Reads the signature file, creating an empty one on the first run. */
+async function readOrCreateSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
+  let result
   try {
     result = await getFileContent()
-  } catch (error) {
+  } catch (error: any) {
     if (Number(error.status) === 404) {
-      return createClaFileAndPRComment(committers, committerMap)
-    } else {
-      throw new Error(
-        `Could not retrieve repository contents. Status: ${
-          error.status || 'unknown'
-        }`
-      )
+      return createSignatureFile()
     }
+    throw new Error(`Could not retrieve repository contents. Status: ${error.status || 'unknown'}`)
   }
-  sha = result?.data?.sha
-  claFileContentString = Buffer.from(result.data.content, 'base64').toString()
-  claFileContent = JSON.parse(claFileContentString)
-  return { claFileContent, sha }
+  const data = result.data as { sha: string; content: string }
+  return { content: JSON.parse(Buffer.from(data.content, 'base64').toString()), sha: data.sha }
 }
 
-async function createClaFileAndPRComment(
-  committers: CommittersDetails[],
-  committerMap: CommitterMap
-): Promise<void> {
-  committerMap.notSigned = committers
-  committerMap.signed = []
-  committers.map(committer => {
-    if (!committer.id) {
-      committerMap.unknown.push(committer)
-    }
-  })
-
-  const initialContent = { signedContributors: [] }
-  const initialContentString = JSON.stringify(initialContent, null, 3)
-  const initialContentBinary =
-    Buffer.from(initialContentString).toString('base64')
-
-  await createFile(initialContentBinary).catch(error =>
-    core.setFailed(
-      `Error occurred when creating the signed contributors file: ${
-        error.message || error
-      }. Make sure the branch where signatures are stored is NOT protected.`
+async function createSignatureFile(): Promise<{ content: SignatureFile; sha: string }> {
+  const content: SignatureFile = { signedContributors: [] }
+  try {
+    const created = await createFile(Buffer.from(JSON.stringify(content, null, 3)).toString('base64'))
+    core.info('Created the signature file')
+    return { content, sha: created.data.content?.sha as string }
+  } catch (error) {
+    throw new Error(
+      `Error occurred when creating the signed contributors file: ${(error as Error).message}. Make sure the branch where signatures are stored exists and that no rule blocks direct commits to it.`
     )
-  )
-  await prCommentSetup(committerMap, committers)
-  throw new Error(
-    `Committers of pull request ${context.issue.number} have to sign the CLA`
-  )
+  }
 }
 
-function prepareCommiterMap(
-  committers: CommittersDetails[],
-  claFileContent
-): CommitterMap {
-  let committerMap = getInitialCommittersMap()
-
-  committerMap.notSigned = committers.filter(
-    committer =>
-      !claFileContent?.signedContributors.some(cla => committer.id === cla.id)
-  )
-  committerMap.signed = committers.filter(committer =>
-    claFileContent?.signedContributors.some(cla => committer.id === cla.id)
-  )
-  committers.map(committer => {
-    if (!committer.id) {
-      committerMap.unknown.push(committer)
-    }
-  })
-  return committerMap
+function groupCommitters(committers: Committer[], content: SignatureFile): CommitterMap {
+  const hasSigned = (committer: Committer) => content.signedContributors.some(signature => signature.id === committer.id)
+  return {
+    signed: committers.filter(hasSigned),
+    notSigned: committers.filter(committer => !hasSigned(committer)),
+    unknown: committers.filter(committer => !committer.id)
+  }
 }
-
-const getInitialCommittersMap = (): CommitterMap => ({
-  signed: [],
-  notSigned: [],
-  unknown: []
-})

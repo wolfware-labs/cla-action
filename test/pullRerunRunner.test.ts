@@ -8,7 +8,7 @@ vi.mock('../src/octokit', async () => (await import('./harness')).octokitModule)
 const { reRunLastWorkFlowIfRequired } = await import('../src/pullRerunRunner')
 
 function lastRun(conclusion: string | null, total = 1) {
-  octokit.rest.pulls.get.mockResolvedValue({ data: { head: { ref: 'feature' } } })
+  octokit.rest.pulls.get.mockResolvedValue({ data: { head: { ref: 'main', sha: 'head-sha' } } })
   octokit.rest.actions.listRepoWorkflows.mockResolvedValue({ data: { total_count: 2, workflows: [{ id: 1, name: 'build' }, { id: 2, name: 'CLA' }] } })
   octokit.rest.actions.listWorkflowRuns.mockResolvedValue({ data: { total_count: total, workflow_runs: total ? [{ id: 77 }] : [] } })
   octokit.rest.actions.getWorkflowRun.mockResolvedValue({ data: { conclusion } })
@@ -23,13 +23,14 @@ describe('reRunLastWorkFlowIfRequired', () => {
     expect(octokit.rest.pulls.get).not.toHaveBeenCalled()
   })
 
-  it('re-runs the latest failed run of this workflow on the pull request branch', async () => {
+  it("re-runs the latest failed run of this workflow for the pull request's head commit", async () => {
     lastRun('failure')
     await reRunLastWorkFlowIfRequired()
+    // By commit, not branch name: a fork's branch can share its name with another pull request's.
     expect(octokit.rest.actions.listWorkflowRuns).toHaveBeenCalledWith({
       owner: 'acme',
       repo: 'widgets',
-      branch: 'feature',
+      head_sha: 'head-sha',
       workflow_id: 2,
       event: 'pull_request_target'
     })

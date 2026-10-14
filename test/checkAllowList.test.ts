@@ -40,9 +40,15 @@ describe('checkAllowList', () => {
     expect(names(result)).toEqual(['axb'])
   })
 
-  it('matches a wildcard pattern anywhere in the name (current behaviour)', () => {
-    reset({ allowlist: 'bot*' })
-    expect(names(checkAllowList([committer('robotics', 1)]))).toEqual([])
+  it('matches a wildcard pattern against the whole name', () => {
+    reset({ allowlist: 'bot*,*[bot]' })
+    const result = checkAllowList([committer('robotics', 1), committer('bot-two', 2), committer('renovate[bot]', 3)])
+    expect(names(result)).toEqual(['robotics'])
+  })
+
+  it('ignores empty allowlist entries', () => {
+    reset({ allowlist: 'alice,,' })
+    expect(names(checkAllowList([committer('alice', 1), committer('bob', 2)]))).toEqual(['bob'])
   })
 
   it('drops empty entries in the committer list', () => {

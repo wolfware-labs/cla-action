@@ -1,45 +1,29 @@
 import * as core from '@actions/core'
 
-export const getRemoteRepoName = (): string => {
-  return core.getInput('remote-repository-name', { required: false })
-}
+const text = (name: string): string => core.getInput(name, { required: false })
 
-export const getRemoteOrgName = (): string => {
-  return core.getInput('remote-organization-name', { required: false })
-}
+// Action inputs are strings; a flag is on only when it is exactly "true".
+const flag = (name: string): boolean => text(name) === 'true'
 
-export const getPathToSignatures = (): string =>
-  core.getInput('path-to-signatures', { required: false })
+export const getRemoteRepoName = (): string => text('remote-repository-name')
+export const getRemoteOrgName = (): string => text('remote-organization-name')
+export const getPathToSignatures = (): string => text('path-to-signatures')
+export const getPathToDocument = (): string => text('path-to-document')
+export const getBranch = (): string => text('branch')
+export const getAllowList = (): string => text('allowlist')
+export const getSignedCommitMessage = (): string => text('signed-commit-message')
+export const getCreateFileCommitMessage = (): string => text('create-file-commit-message')
+export const getCustomNotSignedPrComment = (): string => text('custom-notsigned-prcomment')
+export const getCustomAllSignedPrComment = (): string => text('custom-allsigned-prcomment')
+export const getCustomPrSignComment = (): string => text('custom-pr-sign-comment')
+export const useDco = (): boolean => flag('use-dco-flag')
+export const lockPullRequestAfterMerge = (): boolean => flag('lock-pullrequest-aftermerge')
+export const suggestRecheck = (): boolean => flag('suggest-recheck')
 
-export const getPathToDocument = (): string =>
-  core.getInput('path-to-document', { required: false })
+/** "CLA" or "DCO", for messages. */
+export const documentKind = (): 'CLA' | 'DCO' => (useDco() ? 'DCO' : 'CLA')
 
-export const getBranch = (): string =>
-  core.getInput('branch', { required: false })
-
-export const getAllowListItem = (): string =>
-  core.getInput('allowlist', { required: false })
-
-export const getSignedCommitMessage = (): string =>
-  core.getInput('signed-commit-message', { required: false })
-
-export const getCreateFileCommitMessage = (): string =>
-  core.getInput('create-file-commit-message', { required: false })
-
-export const getCustomNotSignedPrComment = (): string =>
-  core.getInput('custom-notsigned-prcomment', { required: false })
-
-export const getCustomAllSignedPrComment = (): string =>
-  core.getInput('custom-allsigned-prcomment', { required: false })
-
-export const getUseDcoFlag = (): string =>
-  core.getInput('use-dco-flag', { required: false })
-
-export const getCustomPrSignComment = (): string =>
-  core.getInput('custom-pr-sign-comment', { required: false })
-
-export const lockPullRequestAfterMerge = (): string =>
-  core.getInput('lock-pullrequest-aftermerge', { required: false })
-
-export const suggestRecheck = (): string =>
-  core.getInput('suggest-recheck', { required: false })
+/** The sentence a contributor comments to sign. */
+export const signSentence = (): string =>
+  getCustomPrSignComment() ||
+  `I have read the ${documentKind()} Document and I hereby sign the ${documentKind()}`

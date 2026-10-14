@@ -12,7 +12,7 @@ describe('commentContent', () => {
 
   it('says everyone signed', () => {
     expect(commentContent(true, map([], []))).toBe(
-      'All contributors have signed the CLA  ✍️ ✅<br/><sub>Posted by the ****CLA Assistant Lite bot****.</sub>'
+      'All contributors have signed the CLA  ✍️ ✅<br/><sub>Posted by the **CLA Assistant Lite bot**.</sub>'
     )
   })
 
@@ -34,13 +34,14 @@ describe('commentContent', () => {
     const text = commentContent(false, map([committer('bob', 2)], [committer('carol', 3)]))
     expect(text).toContain('we ask that you all sign')
     expect(text).toContain('**1** out of **2** committers have signed the CLA.')
-    expect(text).toContain('<br/>:white_check_mark: (bob)[https://github.com/bob]')
+    expect(text).toContain('<br/>:white_check_mark: [bob](https://github.com/bob)')
     expect(text).toContain('<br/>:x: @carol')
   })
 
   it('names authors who are not linked to a GitHub account', () => {
     const one = commentContent(false, map([], [committer('Dan', 0)], [committer('Dan', 0)]))
     expect(one).toContain('**Dan** seems not to be a GitHub user.')
+    expect(one).toContain('(https://docs.github.com/')
     const two = commentContent(false, map([], [], [committer('Dan', 0), committer('Eve', 0)]))
     expect(two).toContain('**Dan, Eve** seem not to be a GitHub user.')
   })
@@ -63,6 +64,6 @@ describe('commentContent', () => {
     const text = commentContent(false, map([], [committer('alice', 1)]))
     expect(text).toContain('[Developer Certificate of Origin](https://example.com/DCO.md)')
     expect(text).toContain('I have read the DCO Document and I hereby sign the DCO')
-    expect(text).toContain('****DCO Assistant Lite bot****')
+    expect(text).toContain('<sub>Posted by the **DCO Assistant Lite bot**.</sub>')
   })
 })

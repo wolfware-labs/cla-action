@@ -33,18 +33,20 @@ describe('run', () => {
     expect(setupClaCheck).not.toHaveBeenCalled()
   })
 
-  it('locks a closed pull request even when it was not merged (current behaviour)', async () => {
+  it('does nothing when a pull request closes without merging', async () => {
     context.payload.action = 'closed'
     context.payload.pull_request = { merged: false }
     await run()
-    expect(lockPullRequest).toHaveBeenCalled()
+    expect(lockPullRequest).not.toHaveBeenCalled()
+    expect(setupClaCheck).not.toHaveBeenCalled()
   })
 
-  it('checks signatures on close when locking is turned off', async () => {
+  it('does nothing on merge when locking is turned off', async () => {
     reset({ 'lock-pullrequest-aftermerge': 'false' })
     context.payload.action = 'closed'
+    context.payload.pull_request = { merged: true }
     await run()
-    expect(setupClaCheck).toHaveBeenCalled()
+    expect(setupClaCheck).not.toHaveBeenCalled()
     expect(lockPullRequest).not.toHaveBeenCalled()
   })
 

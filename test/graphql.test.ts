@@ -79,7 +79,7 @@ describe('getCommitters', () => {
     octokit.graphql.mockResolvedValue(page)
     await getCommitters()
     expect(octokit.graphql).toHaveBeenCalledTimes(1)
-    expect(octokit.graphql.mock.calls[0][0]).toContain('commits(first:100,after:$cursor)')
+    expect(octokit.graphql.mock.calls[0][0]).toMatch(/commits\(first: 100, after: \$cursor\)/)
   })
 
   it('wraps API errors', async () => {

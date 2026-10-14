@@ -16,10 +16,10 @@ describe('lockPullRequest', () => {
     expect(core.info).toHaveBeenCalledWith('successfully locked the pull request 7')
   })
 
-  it('logs a failed lock without failing the run', async () => {
+  it('warns about a failed lock without failing the run', async () => {
     octokit.rest.issues.lock.mockRejectedValue(new Error('403'))
     await expect(lockPullRequest()).resolves.toBeUndefined()
-    expect(core.error).toHaveBeenCalled()
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('issues: write'))
     expect(core.setFailed).not.toHaveBeenCalled()
   })
 })
