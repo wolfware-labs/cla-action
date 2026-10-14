@@ -1,6 +1,6 @@
 import { context } from '@actions/github'
 import { octokit } from '../octokit'
-import { CommentSignatures, Committer, CommitterMap } from '../interfaces'
+import { CommentSignatures, Committer, CommitterMap, IssueComment } from '../interfaces'
 import { documentKind } from '../shared/getInputs'
 import { commentContent } from './pullRequestCommentContent'
 import signatureWithPRComment from './signatureComment'
@@ -8,8 +8,8 @@ import signatureWithPRComment from './signatureComment'
 const BOT_LOGIN = 'github-actions[bot]'
 
 /**
- * Posts or updates the bot's comment and collects signatures from the pull
- * request comments. Returns undefined when the bot had no comment yet.
+ * Posts or updates the bot's comment (written by github-actions[bot] and
+ * carrying its footer) and collects signatures from the pull request comments. Returns undefined when the bot had no comment yet.
  */
 export default async function prCommentSetup(
   committerMap: CommitterMap,
@@ -18,7 +18,10 @@ export default async function prCommentSetup(
   const signed = committerMap.notSigned.length === 0
 
   try {
-    const botComment = await getBotComment()
+    // Read once: both the bot's comment and the signing comments come from this list.
+    const comments = await listComments()
+    const marker = `${documentKind()} Assistant Lite bot`
+    const botComment = comments.find(comment => comment.user?.login === BOT_LOGIN && comment.body?.includes(marker))
     if (!botComment) {
       if (!signed) {
         await createComment(commentContent(false, committerMap))
@@ -27,7 +30,7 @@ export default async function prCommentSetup(
     }
 
     // People who signed by commenting since the signature file was last written.
-    const fromComments = await signatureWithPRComment(committerMap, committers)
+    const fromComments = signatureWithPRComment(committerMap, committers, comments)
     fromComments.allSignedFlag = allSigned(committerMap, fromComments.onlyCommitters, committers)
     committerMap.signed.push(...fromComments.newSigned.map(({ name, id, pullRequestNo }) => ({ name, id, pullRequestNo })))
     committerMap.notSigned = committerMap.notSigned.filter(
@@ -46,17 +49,15 @@ function allSigned(committerMap: CommitterMap, signedInComments: Committer[], co
   return committers.every(committer => ids.has(committer.id))
 }
 
-/** The bot's own comment: written by github-actions[bot] and carrying its footer. */
-async function getBotComment() {
-  const marker = `${documentKind()} Assistant Lite bot`
+/** Every comment of the pull request, across all pages. */
+async function listComments(): Promise<IssueComment[]> {
   try {
-    const comments = await octokit.paginate(octokit.rest.issues.listComments, {
+    return await octokit.paginate(octokit.rest.issues.listComments, {
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: context.issue.number,
       per_page: 100
     })
-    return comments.find(comment => comment.user?.login === BOT_LOGIN && comment.body?.includes(marker))
   } catch (error) {
     throw new Error(`Error occurred when getting the comments of the pull request: ${(error as Error).message}`)
   }

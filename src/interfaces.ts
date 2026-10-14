@@ -33,3 +33,12 @@ export interface CommentSignatures {
   onlyCommitters: Committer[]
   allSignedFlag: boolean
 }
+
+/** The fields the action reads from a pull request comment. */
+export interface IssueComment {
+  id: number
+  body?: string | null
+  created_at: string
+  /** Null for a comment by a deleted account. */
+  user: { login: string; id: number } | null
+}

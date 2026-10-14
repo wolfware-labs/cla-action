@@ -54,10 +54,18 @@ describe('prCommentSetup', () => {
     expect(body).toContain('**1** out of **2** committers have signed the CLA.')
   })
 
-  it('finds its comment after the first page of comments', async () => {
-    const chatter = Array.from({ length: 120 }, (_, i) => ({ id: i, body: 'hi', user: { login: `user${i}`, id: 1000 + i } }))
-    octokit.paginate.mockResolvedValue([...chatter, botComment])
-    await prCommentSetup({ signed: [], notSigned: [alice], unknown: [] }, [alice])
+  it('reads every page of comments once, and finds its comment and a signature on the second page', async () => {
+    const chatter = Array.from({ length: 100 }, (_, i) => prComment(`user${i}`, 1000 + i, 'looks good'))
+    octokit.rest.issues.listComments
+      .mockResolvedValueOnce({ data: chatter })
+      .mockResolvedValueOnce({ data: [botComment, prComment('alice', 1, CLA)] })
+    const result = await prCommentSetup({ signed: [], notSigned: [alice], unknown: [] }, [alice])
+    expect(octokit.paginate).toHaveBeenCalledTimes(1)
+    expect(octokit.rest.issues.listComments.mock.calls.map(call => call[0])).toEqual([
+      { owner: 'acme', repo: 'widgets', issue_number: 7, per_page: 100, page: 1 },
+      { owner: 'acme', repo: 'widgets', issue_number: 7, per_page: 100, page: 2 }
+    ])
+    expect(result?.newSigned.map(s => s.name)).toEqual(['alice'])
     expect(octokit.rest.issues.createComment).not.toHaveBeenCalled()
     expect(octokit.rest.issues.updateComment.mock.calls[0][0].comment_id).toBe(500)
   })
