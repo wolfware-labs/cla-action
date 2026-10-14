@@ -129,6 +129,20 @@ describe('setupClaCheck', () => {
       expect(core.setFailed).not.toHaveBeenCalled()
     })
 
+    it('reports from the file as it stands after the retry', async () => {
+      // This run records bob while another run records alice, the other author.
+      authors(['alice', 1], ['bob', 2])
+      octokit.rest.repos.getContent
+        .mockResolvedValueOnce(signatureFile([], 'sha-1'))
+        .mockResolvedValueOnce(signatureFile([{ name: 'alice', id: 1 }], 'sha-2'))
+      octokit.rest.repos.createOrUpdateFileContents.mockRejectedValueOnce(httpError(409)).mockResolvedValueOnce({ data: {} })
+      await setupClaCheck()
+      expect(core.setOutput).toHaveBeenCalledWith('all-signed', 'true')
+      expect(core.setOutput).toHaveBeenCalledWith('missing', '')
+      expect(core.setFailed).not.toHaveBeenCalled()
+      expect(octokit.rest.issues.updateComment.mock.calls.at(-1)?.[0].body).toContain('All contributors have signed the CLA')
+    })
+
     it('gives up after three conflicts', async () => {
       octokit.rest.repos.getContent.mockResolvedValue(signatureFile([], 'sha-1'))
       octokit.rest.repos.createOrUpdateFileContents.mockRejectedValue(httpError(409, 'conflict'))

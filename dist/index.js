@@ -37792,11 +37792,17 @@ const WRITE_ATTEMPTS = 3;
 async function setupClaCheck() {
     const committers = checkAllowList(await getCommitters());
     const { content, sha } = await readOrCreateSignatureFile();
-    const committerMap = groupCommitters(committers, content);
-    const fromComments = await prCommentSetup(committerMap, committers);
+    let committerMap = groupCommitters(committers, content);
+    let fromComments = await prCommentSetup(committerMap, committers);
     if (fromComments?.newSigned.length) {
-        await recordSignatures(content, sha, fromComments.newSigned);
-        await confirmSignatures(fromComments.newSigned);
+        const newSigned = fromComments.newSigned;
+        const latest = await recordSignatures(content, sha, newSigned);
+        if (latest) {
+            // Another run changed the file meanwhile: check again against what it holds now.
+            committerMap = groupCommitters(committers, latest);
+            fromComments = await prCommentSetup(committerMap, committers);
+        }
+        await confirmSignatures(newSigned);
     }
     const allSigned = Boolean(fromComments?.allSignedFlag) || committerMap.notSigned.length === 0;
     await report(committerMap, allSigned);
@@ -37810,14 +37816,16 @@ async function setupClaCheck() {
 }
 /**
  * Commits new signatures. When another run changed the file since it was
- * read (409 or 422), reads it again and commits the signatures still missing.
+ * read (409 or 422), reads it again and commits the signatures still missing,
+ * and returns the file as it now stands; otherwise returns undefined.
  */
 async function recordSignatures(content, sha, newSigned) {
     let missing = newSigned;
     for (let attempt = 1;; attempt++) {
         try {
+            // updateFile appends the signatures to content.
             await updateFile(sha, content, { newSigned: missing, onlyCommitters: [], allSignedFlag: false });
-            return;
+            return attempt === 1 ? undefined : content;
         }
         catch (error) {
             const conflict = [409, 422].includes(Number(error.status));
@@ -37829,7 +37837,7 @@ async function recordSignatures(content, sha, newSigned) {
             const stored = new Set(content.signedContributors.map(signature => signature.id));
             missing = missing.filter(signature => !stored.has(signature.id));
             if (missing.length === 0) {
-                return;
+                return content;
             }
         }
     }
