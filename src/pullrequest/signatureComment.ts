@@ -31,6 +31,11 @@ export default function signatureWithPRComment(
     if (!comment.user || !comment.body || comment.user.login === BOT_LOGIN) {
       continue
     }
+    // Someone who signed more than once is recorded once, with their first signing comment.
+    const user = comment.user
+    if (signatures.some(signature => signature.id === user.id)) {
+      continue
+    }
     if (isSignature(comment.body.trim().toLowerCase())) {
       signatures.push({
         name: comment.user.login,
