@@ -53,7 +53,7 @@ jobs:
         (github.event.comment.body == 'recheck' ||
          github.event.comment.body == 'I have read the CLA document and I hereby sign the CLA'))
     steps:
-      - uses: wolfware-labs/cla-action@<commit SHA>
+      - uses: wolfware-labs/cla-action@ebeb701a6dddbd47e86651cf6f85e951538cd2b8 # master, 2026-10-13
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -64,15 +64,15 @@ jobs:
           allowlist: dependabot[bot],renovate[bot]
 ```
 
-Pin the action to a full commit SHA, as GitHub's [security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) recommends.
+Pin the action to a full commit SHA, and move the pin when you update, as GitHub's [security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) recommends.
 
 The `if:` sentence must match `custom-pr-sign-comment`. Expression comparison in GitHub Actions ignores case.
 
-`pull_request_target` runs the workflow from the default branch with a write token, also for pull requests from forks. The action never checks out pull request code; keep it that way if you add steps.
+`pull_request_target` runs the workflow file from the pull request's base branch, with a write token, also for pull requests from forks. The action never checks out pull request code; keep it that way if you add steps.
 
 ### Where signatures are stored
 
-Signatures go to `path-to-signatures` on `branch`. A dedicated branch such as `cla-signatures` keeps signature commits off your default branch. The branch must exist; the file does not need to, and must not be created by hand.
+Signatures go to `path-to-signatures` on `branch`. A dedicated branch such as `cla-signatures` keeps signature commits off your default branch. The branch must exist. The file does not: the action creates it on the first run. Do not create it by hand, because the action expects the exact format it writes.
 
 Rules that require signed commits on that branch are fine: commits the action makes with `GITHUB_TOKEN` through the GitHub API are signed by GitHub. Rules that require pull requests or block direct pushes to the branch are not.
 
