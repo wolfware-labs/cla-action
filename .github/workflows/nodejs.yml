@@ -22,3 +22,12 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build
+      # The action runs dist/, so it must be the build of the committed source.
+      - name: Check dist is up to date
+        run: |
+          if ! git diff --quiet -- dist; then
+            echo "::error::dist/ does not match the source. Run npm run build and commit dist/."
+            git diff --stat -- dist
+            exit 1
+          fi
+      - run: npm audit --audit-level=low

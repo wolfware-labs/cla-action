@@ -123,10 +123,11 @@ The job reports a check named after the job (`cla` above). To block merging unti
 
 ```sh
 npm ci
-npm run build   # compiles src/ into dist/index.js, which is what the action runs
+npm run typecheck   # TypeScript checks only
+npm run build       # type-checks, then bundles src/ into dist/index.js, which is what the action runs
 ```
 
-Commit `dist/index.js` together with the source change that produced it.
+The action is an ES module and needs Node.js 24. Commit `dist/` together with the source change that produced it; CI fails when they differ.
 
 ## Contributors
 

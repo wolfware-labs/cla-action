@@ -1,17 +1,10 @@
 {
-  "name": "github-action",
-  "version": "0.0.1",
-  "description": "GitHub Action for storing CLA signatures",
-  "main": "lib/main.js",
+  "name": "cla-action",
+  "version": "2.7.0",
+  "description": "GitHub Action that asks pull request authors to sign a CLA or DCO and records the signatures in a repository",
   "scripts": {
-    "test": "jest",
-    "build": "tsc && ncc build",
-    "buildAndAdd": "npm run build && git add ."
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "npm run buildAndAdd"
-    }
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && ncc build src/main.ts -o dist --license licenses.txt"
   },
   "repository": {
     "type": "git",
@@ -23,25 +16,28 @@
     "setup"
   ],
   "dependencies": {
-    "@actions/core": "^1.10.0",
-    "@actions/github": "^4.0.0",
-    "@octokit/rest": "^16.43.2",
-    "actions-toolkit": "^2.1.0",
-    "husky": "^4.3.8",
-    "lodash": "^4.17.21",
-    "node-fetch": "^3.3.0"
+    "@actions/core": "3.0.1",
+    "@actions/github": "9.1.1",
+    "lodash": "4.18.1"
   },
-  "devDependencies": {
-    "@octokit/types": "8.1.1",
-    "@types/node": "^18.11.18",
-    "@vercel/ncc": "^0.38.0",
-    "ts-jest": "^29.0.5",
-    "typescript": "^4.9.4"
-  },
-  "author": "ibakshay",
+  "author": "Wolfware LLC",
   "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/wolfware-labs/cla-action/issues"
   },
-  "homepage": "https://github.com/wolfware-labs/cla-action#readme"
+  "homepage": "https://github.com/wolfware-labs/cla-action#readme",
+  "contributors": [
+    "ibakshay",
+    "SAP"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@types/lodash": "4.17.26",
+    "@types/node": "24.19.2",
+    "@vercel/ncc": "0.45.0",
+    "typescript": "5.9.3"
+  }
 }
